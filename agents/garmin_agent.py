@@ -29,7 +29,17 @@ _SESSION_DIR = Path(__file__).parent.parent / ".garmin_session"
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 def _get_api() -> garminconnect.Garmin:
-    """Загружает сохранённые токены. Credentials используются только как fallback."""
+    """
+    Загружает сохранённые токены из .garmin_session/.
+    Если токенов нет — поднимает RuntimeError с инструкцией вместо попытки
+    credentials-логина (который на сервере упадёт на MFA).
+    """
+    token_file = _SESSION_DIR / "garmin_tokens.json"
+    if not token_file.exists():
+        raise RuntimeError(
+            f"Garmin-токены не найдены: {token_file}\n"
+            "Запусти один раз на этом хосте: uv run tools/garmin_auth.py"
+        )
     api = garminconnect.Garmin(
         os.getenv("GARMIN_EMAIL", ""),
         os.getenv("GARMIN_PASSWORD", ""),
