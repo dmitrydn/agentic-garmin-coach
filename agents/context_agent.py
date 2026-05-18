@@ -16,6 +16,12 @@ import json
 import os
 from datetime import date, timedelta
 
+# Теги, которые объясняют нагрузку/усталость → флаги помечаются known_event
+_LOAD_TAGS    = {"hard-run", "camp-start", "camp-end", "no-sleep", "travel", "heat", "rest-day", "strength"}
+_RACE_TAGS    = {"race-a", "race-b", "race-c"}
+# Теги болезни → добавляют флаг illness, НЕ нейтрализуют метрические флаги
+_ILLNESS_TAGS = {"illness"}
+
 
 # ── LangGraph node ────────────────────────────────────────────────────────────
 
@@ -23,20 +29,28 @@ def context_agent_fn(state: dict) -> dict:
     """Читает файлы, строит флаги. Ноль токенов."""
     today = state["date"]
 
-    events           = _read_log("events.log",   days=14)
-    feedback         = _read_log("feedback.log",  days=7)
+    events             = _read_log("events.log",  days=14)
+    feedback           = _read_log("feedback.log", days=7)
     yesterday_analysis = _read_analysis(today, offset=-1)
-    athlete_memory   = _read_file("ATHLETE_MEMORY.md")
+    athlete_memory     = _read_file("ATHLETE_MEMORY.md")
 
-    flags = _compute_flags(state)
+    flags        = _compute_flags(state)
+    today_events = _parse_today_events(today, events)
+    today_tags   = {tag for tag, _ in today_events}
 
-    # Разрешаем известные события через events.log
-    resolved_flags = []
-    for flag in flags:
-        if _date_in_events(today, events):
-            resolved_flags.append(f"known_event|{flag}")
-        else:
-            resolved_flags.append(flag)
+    # Illness: добавляем флаг, метрические флаги остаются как есть
+    # Load/race events: метрические флаги помечаются known_event (объяснены)
+    is_load_explained = bool(today_tags & (_LOAD_TAGS | _RACE_TAGS)) \
+                        and not (today_tags & _ILLNESS_TAGS)
+
+    resolved_flags = [
+        f"known_event|{f}" if is_load_explained else f
+        for f in flags
+    ]
+
+    for tag, desc in today_events:
+        if tag in _ILLNESS_TAGS:
+            resolved_flags.append(f"illness:{desc}" if desc else "illness")
 
     print(f"[context_agent] flags: {resolved_flags}")
     return {
@@ -122,9 +136,14 @@ def _read_file(path: str) -> str:
         return ""
 
 
-def _date_in_events(today: str, events: str) -> bool:
-    """True если сегодняшняя дата упоминается в events.log."""
-    return today in events
+def _parse_today_events(today: str, events_text: str) -> list[tuple[str, str]]:
+    """Возвращает [(тег, описание)] из строк events.log за сегодня."""
+    result = []
+    for line in events_text.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) >= 2 and parts[0] == today:
+            result.append((parts[1], parts[2] if len(parts) > 2 else ""))
+    return result
 
 
 # ── Standalone test ───────────────────────────────────────────────────────────

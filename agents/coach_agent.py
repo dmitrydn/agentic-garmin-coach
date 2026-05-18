@@ -97,6 +97,9 @@ RHR тренд: {'+' if (state.get('rhr_trend') or 0) > 0 else ''}{state.get('rh
 Флаги контекста: {state.get('context_flags', [])}
 Garmin Coach план (ближайшие 3 тренировки): {state.get('upcoming_plan', [])[:3]}
 
+События (events.log, последние 14 дней):
+{state.get('events_context') or 'нет событий'}
+
 Долгосрочная память тренера:
 {state.get('athlete_memory', 'нет данных')}
 

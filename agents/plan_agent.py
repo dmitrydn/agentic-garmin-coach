@@ -101,6 +101,9 @@ Garmin real-time (если доступен):
 - Training Status: {(state.get('garmin_rt') or {}).get('training_status', 'н/д')}
 
 Флаги контекста: {state.get('context_flags', [])}
+
+События (events.log, последние 14 дней):
+{state.get('events_context') or 'нет событий'}
 """.strip()
 
     print("[plan_agent] запрос к Sonnet 4.6...")
