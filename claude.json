@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "garmin-connect": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "python", "mcp/garmin_mcp_server.py"],
+      "env": {
+        "GARMIN_EMAIL": "${GARMIN_EMAIL}",
+        "GARMIN_PASSWORD": "${GARMIN_PASSWORD}"
+      }
+    }
+  }
+}
