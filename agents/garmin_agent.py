@@ -148,24 +148,17 @@ def _extract_duration_min(api, item: dict) -> int:
         if val:
             return int(val)
 
-    # Fallback: запрос деталей тренировки по ID
-    workout_id = item.get("workoutId")
-    if workout_id:
-        try:
-            details = api.get_workout(workout_id)
-            # Структура: estimatedDurationInSecs или segments суммарно
-            secs = details.get("estimatedDurationInSecs")
-            if secs:
-                return round(secs / 60)
-            segments = details.get("workoutSegments") or []
-            total = sum(
-                s.get("estimatedDurationInSecs") or 0
-                for s in segments
-            )
-            if total:
-                return round(total / 60)
-        except Exception as e:
-            print(f"[garmin_plan] get_workout({workout_id}) ошибка: {e}")
+    # Garmin Adaptive Coach (fbtAdaptiveWorkout) не возвращает длительность
+    # через calendar API — она вычисляется динамически. Используем эвристику.
+    title = (item.get("title") or "").lower()
+    _DURATION_HEURISTIC = {
+        "recovery": 30, "easy": 45, "base": 50,
+        "aerobic": 50, "threshold": 55, "tempo": 55,
+        "interval": 55, "speed": 55, "long": 90, "endurance": 80,
+    }
+    for keyword, mins in _DURATION_HEURISTIC.items():
+        if keyword in title:
+            return mins
 
     return 0
 
@@ -370,86 +363,97 @@ def _save_performance_cache(date_str: str, data: dict) -> None:
 
 def _fetch_vo2max(api, date_str: str) -> float | None:
     """
-    VO2max из Garmin. get_max_metrics() возвращает list[dict], не dict.
-    Ищем запись с metricType содержащим 'VO2' и берём последнее значение.
+    VO2max из Garmin через get_max_metrics(date).
+    API возвращает данные только для дат с активностями.
+    Структура: list[{generic: {vo2MaxPreciseValue, vo2MaxValue}, ...}]
+
+    Стратегия: сначала дата последней активности из БД (быстро),
+    потом перебор дней назад до 30, потом значение из performance_cache.
     """
+    def _extract(data) -> float | None:
+        if not isinstance(data, list) or not data:
+            return None
+        item = data[0]
+        generic = item.get("generic") or {}
+        return generic.get("vo2MaxPreciseValue") or generic.get("vo2MaxValue")
+
+    # 1. Дата последней активности из БД — наиболее вероятная дата с VO2max
     try:
-        data = api.get_max_metrics(date_str)
+        con = sqlite3.connect("coach.db")
+        row = con.execute(
+            "SELECT date FROM activity_cache WHERE date <= ? ORDER BY date DESC LIMIT 1",
+            (date_str,)
+        ).fetchone()
+        con.close()
+        if row:
+            val = _extract(api.get_max_metrics(row[0]))
+            if val:
+                return val
+    except Exception:
+        pass
 
-        # API возвращает список объектов метрик
-        if isinstance(data, list):
-            vo2_entries = [
-                m for m in data
-                if "VO2" in str(m.get("metricType", "")).upper()
-                or "VO2" in str(m.get("generic", {}).get("metricDescriptorId", "")).upper()
-            ]
-            # Если metricType отсутствует — берём все записи как VO2max (часто единственный тип)
-            if not vo2_entries and data:
-                vo2_entries = data
-            if vo2_entries:
-                latest = max(vo2_entries, key=lambda x: x.get("calendarDate", ""))
-                return (
-                    latest.get("value")
-                    or latest.get("generic", {}).get("value")
-                )
+    # 2. Перебор последних 14 дней (VO2max обновляется только при активности)
+    for days_back in range(1, 14):
+        check = (date.fromisoformat(date_str) - timedelta(days=days_back)).isoformat()
+        try:
+            val = _extract(api.get_max_metrics(check))
+            if val:
+                return val
+        except Exception:
+            pass
 
-        # Fallback: dict-формат (старые версии API)
-        elif isinstance(data, dict):
-            metrics_map = data.get("allMetrics", {}).get("metricsMap", {})
-            entries = metrics_map.get("VO2_MAX_RUNNING", [])
-            if entries:
-                latest = max(entries, key=lambda x: x.get("calendarDate", ""))
-                return latest.get("value")
+    # 3. Значение из предыдущих запусков performance_cache
+    try:
+        cutoff = (date.fromisoformat(date_str) - timedelta(days=30)).isoformat()
+        con = sqlite3.connect("coach.db")
+        row = con.execute("""
+            SELECT vo2max FROM performance_cache
+            WHERE vo2max IS NOT NULL AND date >= ? AND date < ?
+            ORDER BY date DESC LIMIT 1
+        """, (cutoff, date_str)).fetchone()
+        con.close()
+        if row:
+            return row[0]
+    except Exception:
+        pass
 
-        print(f"[garmin_performance] vo2max: неожиданный формат: {type(data)}, keys={list(data[0].keys()) if isinstance(data, list) and data else 'н/д'}")
-    except Exception as e:
-        print(f"[garmin_performance] vo2max ошибка: {e}")
     return None
 
 
 def _fetch_lt(api) -> tuple[int | None, float | None]:
     """
-    LT HR (bpm) и темп (s/km). Garmin API варьирует структуру ответа.
-    Логируем сырой ответ при неудаче для отладки.
+    LT HR (bpm) и темп (s/km) из get_lactate_threshold().
+
+    Структура ответа: {"speed_and_heart_rate": {"heartRate": 154, "speed": 0.34...}, ...}
+    speed — это pace в с/м (секунд на метр), а не скорость в м/с.
+    Конвертация: pace_s/km = speed_spm × 1000.
     """
     try:
         data = api.get_lactate_threshold()
 
-        # Нормализуем: достаём первый dict-уровень с HR
-        candidates = []
-        if isinstance(data, dict):
-            candidates = [
-                data,
-                data.get("lactateThresholdHeartRateResponse", {}),
-                data.get("lastLactateThreshold", {}),
-                data.get("latestLactateThreshold", {}),
-            ]
-        elif isinstance(data, list) and data:
-            candidates = data
+        # Основной формат: вложен в speed_and_heart_rate
+        shr = data.get("speed_and_heart_rate") if isinstance(data, dict) else None
+        if shr:
+            hr       = shr.get("heartRate") or shr.get("heartRateBeatsPerMinute")
+            speed_spm = shr.get("speed")    # с/м (pace), не м/с
+            pace_s   = round(speed_spm * 1000) if speed_spm else None
+            if hr:
+                return int(hr), pace_s
 
-        hr, speed_ms = None, None
+        # Fallback: плоский dict или другие вложения
+        candidates = [data] if isinstance(data, dict) else (data if isinstance(data, list) else [])
         for c in candidates:
             if not isinstance(c, dict):
                 continue
-            hr = (
-                c.get("heartRateBeatsPerMinute")
-                or c.get("heartRate")
-                or c.get("lactateThresholdHeartRate")
-                or c.get("bpm")
-            )
-            speed_ms = c.get("speed") or c.get("speedInMetersPerSecond")
+            hr = (c.get("heartRateBeatsPerMinute") or c.get("heartRate")
+                  or c.get("lactateThresholdHeartRate"))
+            speed_spm = c.get("speed")
+            pace_s = round(speed_spm * 1000) if speed_spm else None
             if hr:
-                break
+                return int(hr), pace_s
 
-        if not hr:
-            # Диагностика: логируем структуру чтобы понять правильный ключ
-            print(f"[garmin_performance] LT HR не найден. Структура ответа: "
-                  f"{json.dumps(data, ensure_ascii=False)[:300]}")
-            return None, None
-
-        pace_s = round(1000 / speed_ms) if speed_ms else None
-        return int(hr), pace_s
-
+        print(f"[garmin_performance] LT: неожиданная структура: "
+              f"{json.dumps(data, ensure_ascii=False)[:200]}")
     except Exception as e:
         print(f"[garmin_performance] LT ошибка: {e}")
     return None, None
