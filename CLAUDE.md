@@ -1,7 +1,7 @@
 # CLAUDE.md — Инструкции для Claude Code
 
 Персональный AI беговой тренер для атлета 58 лет.
-Оркестратор: LangGraph. LLM: Anthropic Claude Sonnet 4.6.
+Оркестратор: LangGraph. LLM: Opus 4.7 (coach) + Sonnet 4.6 (plan, synthesis, memory).
 
 → Стек, структура проекта, переменные окружения, статус агентов: `README.md`
 
@@ -22,14 +22,14 @@ uv run agents/pipeline.py --dry  # без отправки в Telegram
 ## Какие агенты вызывают LLM
 
 Большинство агентов — чистый Python, ноль токенов.
-LLM вызывают только четыре агента, все используют `claude-sonnet-4-6`:
+LLM вызывают только четыре агента:
 
-| Агент | Задача |
-|---|---|
-| `coach_agent` | Оценка readiness из HRV, ACWR, флагов, памяти тренера |
-| `plan_agent` | Адаптация Garmin-плана под текущий readiness |
-| `synthesis_agent` | Финальное сообщение в Telegram |
-| `memory_agent` | Еженедельная перезапись ATHLETE_MEMORY.md |
+| Агент | Модель | Задача |
+|---|---|---|
+| `coach_agent` | `claude-opus-4-7` | Оценка readiness из HRV, ACWR, флагов, памяти тренера |
+| `plan_agent` | `claude-sonnet-4-6` | Адаптация Garmin-плана под текущий readiness |
+| `synthesis_agent` | `claude-sonnet-4-6` | Финальное сообщение в Telegram |
+| `memory_agent` | `claude-sonnet-4-6` | Еженедельная перезапись ATHLETE_MEMORY.md |
 
 Остальные агенты (`data`, `metrics`, `garmin`, `context`, `hydration`) — детерминированная логика, Python.
 

@@ -192,7 +192,7 @@ Garmin Coach план (ближайшие 3 тренировки): {state.get('u
 
     print("[coach_agent] запрос к Sonnet 4.6...")
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-opus-4-7",
         max_tokens=1000,
         system=system,
         messages=[{"role": "user", "content": user_content}],
