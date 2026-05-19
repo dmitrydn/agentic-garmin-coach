@@ -322,7 +322,8 @@ def metrics_fn(state: dict) -> dict:
         **hrv_data,
         **acwr_data,
         **rhr_data,
-        "form_today":         today_w.get("form"),   # CTL-ATL из wellness_cache
+        "form_today":         today_w.get("form"),
+        "sleep_score":        today_w.get("sleep_score"),
         "z1z2_ratio_week":    zone_data.get("z1z2_ratio"),
         "z1z2_compliant":     zone_data.get("z1z2_compliant"),
         "days_since_quality": dsq,

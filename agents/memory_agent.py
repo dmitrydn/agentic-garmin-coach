@@ -52,6 +52,8 @@ MEMORY_SYSTEM = """
 - Есть ли паттерн: при каком ACWR атлет лучше восстанавливается?
 - Изменился ли HRV baseline за неделю?
 - Были ли признаки перегрузки или недовосстановления?
+- Изменился ли VO2max или LT HR за период? Если да — отрази в HRV профиле.
+- Если deep sleep < 60 мин или REM < 60 мин систематически — отрази в паттернах восстановления.
 """
 
 
@@ -85,6 +87,14 @@ def _collect_weekly_data() -> dict:
         WHERE r.date >= ? ORDER BY r.date
     """, (week_ago,)).fetchall()
 
+    # Последние значения VO2max и LT из performance_cache
+    performance = con.execute("""
+        SELECT date, vo2max, lt_hr, lt_pace_s,
+               sleep_deep_min, sleep_rem_min
+        FROM performance_cache
+        WHERE date >= ? ORDER BY date DESC LIMIT 7
+    """, (week_ago,)).fetchall()
+
     con.close()
 
     return {
@@ -100,6 +110,11 @@ def _collect_weekly_data() -> dict:
              "rec_type": r[3], "actual_rpe": r[4], "actual_hr": r[5],
              "hrv_next_day": r[6]}
             for r in recommendations
+        ],
+        "performance": [
+            {"date": r[0], "vo2max": r[1], "lt_hr": r[2],
+             "lt_pace_s": r[3], "sleep_deep_min": r[4], "sleep_rem_min": r[5]}
+            for r in performance
         ],
     }
 
@@ -165,6 +180,9 @@ Wellness:
 
 Рекомендации и исходы:
 {json.dumps(weekly_data['recommendations'], ensure_ascii=False, indent=2)}
+
+Garmin Performance (VO2max, LT HR, стадии сна):
+{json.dumps(weekly_data['performance'], ensure_ascii=False, indent=2)}
 
 Обнови файл, сохрани структуру и лимиты. Выведи только содержимое файла.
 """.strip()

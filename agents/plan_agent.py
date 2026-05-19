@@ -114,6 +114,10 @@ Garmin Plan на неделю: {json.dumps((state.get('upcoming_plan') or [])[:7
 - Мезоцикл неделя: {state.get('mesocycle_week')}/4
 - Силовая нагрузка сегодня: {state.get('strength_load_today', 0)} усл.ед.
 
+Garmin Performance (для калибровки зон):
+- VO2max: {state.get('vo2max', 'н/д')} мл/кг/мин (тренд: {state.get('vo2max_trend', 'н/д')})
+- LT HR: {state.get('lt_hr', 'н/д')} bpm → Z2 верх ≈ LT−20bpm, Z3 = LT−10..LT, Z4 = LT..LT+10
+
 Garmin real-time (если доступен):
 - Body Battery утром: {(state.get('garmin_rt') or {}).get('body_battery', 'н/д')}
 - Training Readiness: {(state.get('garmin_rt') or {}).get('training_readiness', 'н/д')}

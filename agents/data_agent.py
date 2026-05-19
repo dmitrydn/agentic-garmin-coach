@@ -67,6 +67,18 @@ def init_db(db_path: str = "coach.db") -> None:
         fetched_at                  TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS performance_cache (
+        date            TEXT PRIMARY KEY,
+        vo2max          REAL,
+        lt_hr           INTEGER,
+        lt_pace_s       REAL,
+        sleep_deep_min  INTEGER,
+        sleep_rem_min   INTEGER,
+        sleep_light_min INTEGER,
+        sleep_awake_min INTEGER,
+        fetched_at      TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS strength_log (
         date                     TEXT PRIMARY KEY,
         phase                    TEXT,

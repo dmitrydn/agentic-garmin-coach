@@ -2,10 +2,10 @@
 pipeline.py — LangGraph граф, точка входа.
 
 Граф:
-  data → metrics → garmin_plan → context → coach
-         coach ──┬── [score ≤ 5] → garmin_rt → plan
-                 └── [score > 5] ──────────────→ plan
-                                  plan → hydration → synthesis → telegram → END
+  data → metrics → garmin_plan → garmin_performance → context → coach
+                                  coach ──┬── [score ≤ 5] → garmin_rt → plan
+                                          └── [score > 5] ──────────────→ plan
+                                                            plan → hydration → synthesis → telegram → END
 
 По воскресеньям вечером: + memory_agent (перезапись ATHLETE_MEMORY.md).
 
@@ -36,7 +36,7 @@ load_dotenv()
 from coach_agent import coach_agent_fn
 from context_agent import context_agent_fn
 from data_agent import data_agent_fn, init_db
-from garmin_agent import garmin_plan_fn, garmin_rt_fn
+from garmin_agent import garmin_plan_fn, garmin_performance_fn, garmin_rt_fn
 from hydration_agent import hydration_fn
 from memory_agent import memory_agent_fn
 from metrics import metrics_fn, strength_load_today
@@ -72,9 +72,20 @@ class CoachState(TypedDict, total=False):
     mesocycle_week:     int
     strength_load_today: float
 
-    # garmin_agent
+    # garmin_agent — plan
     upcoming_plan: list[dict]
     garmin_rt:     dict
+
+    # garmin_agent — performance (VO2max, LT, sleep stages)
+    vo2max:          float
+    vo2max_trend:    str       # "rising" | "stable" | "falling" | "unknown"
+    lt_hr:           int       # bpm at lactate threshold
+    lt_pace_s:       float     # s/km at LT
+    sleep_score:     float     # из intervals.icu wellness
+    sleep_deep_min:  int
+    sleep_rem_min:   int
+    sleep_light_min: int
+    sleep_awake_min: int
 
     # context_agent
     context_flags:      list[str]
@@ -203,6 +214,11 @@ def node_garmin_plan(state: CoachState) -> CoachState:
     return garmin_plan_fn(state)
 
 
+def node_garmin_performance(state: CoachState) -> CoachState:
+    print("[pipeline] ── garmin_performance ──")
+    return garmin_performance_fn(state)
+
+
 def node_context(state: CoachState) -> CoachState:
     print("[pipeline] ── context_agent ──")
     return context_agent_fn(state)
@@ -274,10 +290,11 @@ def route_garmin_rt(state: CoachState) -> str:
 def build_graph() -> StateGraph:
     g = StateGraph(CoachState)
 
-    g.add_node("data",        node_data)
-    g.add_node("metrics",     node_metrics)
-    g.add_node("garmin_plan", node_garmin_plan)
-    g.add_node("context",     node_context)
+    g.add_node("data",               node_data)
+    g.add_node("metrics",            node_metrics)
+    g.add_node("garmin_plan",        node_garmin_plan)
+    g.add_node("garmin_performance", node_garmin_performance)
+    g.add_node("context",            node_context)
     g.add_node("coach",       node_coach)
     g.add_node("garmin_rt",   node_garmin_rt)
     g.add_node("plan",        node_plan)
@@ -287,10 +304,11 @@ def build_graph() -> StateGraph:
 
     g.set_entry_point("data")
 
-    g.add_edge("data",        "metrics")
-    g.add_edge("metrics",     "garmin_plan")
-    g.add_edge("garmin_plan", "context")
-    g.add_edge("context",     "coach")
+    g.add_edge("data",               "metrics")
+    g.add_edge("metrics",            "garmin_plan")
+    g.add_edge("garmin_plan",        "garmin_performance")
+    g.add_edge("garmin_performance", "context")
+    g.add_edge("context",            "coach")
 
     g.add_conditional_edges(
         "coach",

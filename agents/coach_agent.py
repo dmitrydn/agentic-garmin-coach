@@ -179,6 +179,14 @@ RHR тренд: {'+' if (state.get('rhr_trend') or 0) > 0 else ''}{state.get('rh
 80/20 за неделю: {state.get('z1z2_ratio_week')} ({'OK' if state.get('z1z2_compliant') else '⚠ нарушение'})
 Силовая нагрузка сегодня: {state.get('strength_load_today', 0)} усл.ед.
 
+Сон вчера (Garmin):
+- Sleep score: {state.get('sleep_score', 'н/д')}
+- Глубокий: {state.get('sleep_deep_min', 'н/д')} мин | REM: {state.get('sleep_rem_min', 'н/д')} мин | Лёгкий: {state.get('sleep_light_min', 'н/д')} мин | Пробуждения: {state.get('sleep_awake_min', 'н/д')} мин
+
+Garmin Performance:
+- VO2max: {state.get('vo2max', 'н/д')} мл/кг/мин (тренд: {state.get('vo2max_trend', 'н/д')})
+- Lactate Threshold HR: {state.get('lt_hr', 'н/д')} bpm
+
 Флаги контекста: {state.get('context_flags', [])}
 Garmin Coach план (ближайшие 7 дней): {state.get('upcoming_plan', [])[:7]}
 
