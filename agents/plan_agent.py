@@ -121,7 +121,7 @@ Garmin Performance (для калибровки зон):
 Garmin real-time (если доступен):
 - Body Battery утром: {(state.get('garmin_rt') or {}).get('body_battery', 'н/д')}
 - Training Readiness: {(state.get('garmin_rt') or {}).get('training_readiness', 'н/д')}
-- Training Status: {(state.get('garmin_rt') or {}).get('training_status', 'н/д')}
+- Training Status: {(state.get('garmin_rt') or {}).get('training_status', 'н/д')} — {(state.get('garmin_rt') or {}).get('training_status_label', 'н/д')}
 
 Флаги контекста: {state.get('context_flags', [])}
 

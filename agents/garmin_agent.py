@@ -108,6 +108,68 @@ def _save_garmin_rt(date_str: str, data: dict) -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# ── Training Status labels ────────────────────────────────────────────────────
+
+_TRAINING_STATUS_LABELS: dict[str, str] = {
+    "RECOVERY_1":     "Восстановление (нагрузка ниже хронической нормы)",
+    "RECOVERY_2":     "Восстановление (значительно ниже нормы)",
+    "MAINTAINING_1":  "Поддержание формы",
+    "MAINTAINING_2":  "Поддержание (стабильно)",
+    "PRODUCTIVE_1":   "Продуктивная нагрузка — идёт адаптация",
+    "PRODUCTIVE_2":   "Продуктивная нагрузка (высокая интенсивность)",
+    "PEAKING_1":      "Пик формы / тейпер",
+    "PEAKING_2":      "Пик формы (высокий уровень)",
+    "DETRAINING_1":   "Детренированность — нагрузка слишком низкая",
+    "OVERREACHING_1": "Перегрузка — необходимо снизить нагрузку",
+    "OVERREACHING_2": "Функциональная перегрузка (риск)",
+}
+
+
+def _training_status_label(code: str | None) -> str:
+    if not code:
+        return "н/д"
+    return _TRAINING_STATUS_LABELS.get(code, code)
+
+
+def _extract_duration_min(api, item: dict) -> int:
+    """
+    Длительность тренировки из calendar item.
+    calendar API не возвращает duration → запрашиваем детали по workoutId.
+    Поля в порядке приоритета (могут появиться в разных версиях API).
+    """
+    for field in ("durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs",
+                  "estimatedDurationInSecs"):
+        val = item.get(field)
+        if val:
+            return round(val / 60)
+
+    for field in ("durationMinutes", "duration_min"):
+        val = item.get(field)
+        if val:
+            return int(val)
+
+    # Fallback: запрос деталей тренировки по ID
+    workout_id = item.get("workoutId")
+    if workout_id:
+        try:
+            details = api.get_workout(workout_id)
+            # Структура: estimatedDurationInSecs или segments суммарно
+            secs = details.get("estimatedDurationInSecs")
+            if secs:
+                return round(secs / 60)
+            segments = details.get("workoutSegments") or []
+            total = sum(
+                s.get("estimatedDurationInSecs") or 0
+                for s in segments
+            )
+            if total:
+                return round(total / 60)
+        except Exception as e:
+            print(f"[garmin_plan] get_workout({workout_id}) ошибка: {e}")
+
+    return 0
+
+
 def _extract_morning_battery(bb_list: list, target_date: str) -> int | None:
     """
     Пик Body Battery за день = максимум из bodyBatteryValuesArray.
@@ -155,18 +217,22 @@ def garmin_plan_fn(state: dict) -> dict:
             r = api.get_scheduled_workouts(yr, mo)
             all_items.extend(r.get("calendarItems", []))
 
-        plan = [
-            {
-                "date":         w["date"],
-                "type":         w.get("sportTypeKey") or "running",
-                "description":  w.get("title"),
-                "duration_min": 0,  # недоступно в calendar API; уточняется через workout details
-            }
-            for w in all_items
+        raw_workouts = [
+            w for w in all_items
             if w.get("itemType") == "fbtAdaptiveWorkout"
             and w.get("date")
             and today_str <= w["date"] <= end_date.isoformat()
         ]
+
+        plan = []
+        for w in raw_workouts:
+            duration_min = _extract_duration_min(api, w)
+            plan.append({
+                "date":         w["date"],
+                "type":         w.get("sportTypeKey") or "running",
+                "description":  w.get("title"),
+                "duration_min": duration_min,
+            })
 
         _save_garmin_plan(today_str, plan)
         print(f"[garmin_plan] загружен из Garmin, {len(plan)} тренировок")
@@ -219,12 +285,14 @@ def garmin_rt_fn(state: dict) -> dict:
         status = device_data.get("trainingStatusFeedbackPhrase")
 
         result = {
-            "body_battery":       bb_morning,
-            "training_readiness": readiness,
-            "training_status":    status,
+            "body_battery":        bb_morning,
+            "training_readiness":  readiness,
+            "training_status":     status,
+            "training_status_label": _training_status_label(status),
         }
         _save_garmin_rt(today_str, result)
-        print(f"[garmin_rt] BB={bb_morning}, Readiness={readiness}, Status={status}")
+        print(f"[garmin_rt] BB={bb_morning}, Readiness={readiness}, "
+              f"Status={status} ({_training_status_label(status)})")
         return {"garmin_rt": result}
 
     except Exception as e:
@@ -301,36 +369,87 @@ def _save_performance_cache(date_str: str, data: dict) -> None:
 # ── Performance API helpers ───────────────────────────────────────────────────
 
 def _fetch_vo2max(api, date_str: str) -> float | None:
-    """Текущий VO2max из Garmin (running)."""
+    """
+    VO2max из Garmin. get_max_metrics() возвращает list[dict], не dict.
+    Ищем запись с metricType содержащим 'VO2' и берём последнее значение.
+    """
     try:
         data = api.get_max_metrics(date_str)
-        metrics_map = (
-            data.get("allMetrics", {})
-                .get("metricsMap", {})
-        )
-        entries = metrics_map.get("VO2_MAX_RUNNING", [])
-        if entries:
-            latest = max(entries, key=lambda x: x.get("calendarDate", ""))
-            return latest.get("value")
+
+        # API возвращает список объектов метрик
+        if isinstance(data, list):
+            vo2_entries = [
+                m for m in data
+                if "VO2" in str(m.get("metricType", "")).upper()
+                or "VO2" in str(m.get("generic", {}).get("metricDescriptorId", "")).upper()
+            ]
+            # Если metricType отсутствует — берём все записи как VO2max (часто единственный тип)
+            if not vo2_entries and data:
+                vo2_entries = data
+            if vo2_entries:
+                latest = max(vo2_entries, key=lambda x: x.get("calendarDate", ""))
+                return (
+                    latest.get("value")
+                    or latest.get("generic", {}).get("value")
+                )
+
+        # Fallback: dict-формат (старые версии API)
+        elif isinstance(data, dict):
+            metrics_map = data.get("allMetrics", {}).get("metricsMap", {})
+            entries = metrics_map.get("VO2_MAX_RUNNING", [])
+            if entries:
+                latest = max(entries, key=lambda x: x.get("calendarDate", ""))
+                return latest.get("value")
+
+        print(f"[garmin_performance] vo2max: неожиданный формат: {type(data)}, keys={list(data[0].keys()) if isinstance(data, list) and data else 'н/д'}")
     except Exception as e:
         print(f"[garmin_performance] vo2max ошибка: {e}")
     return None
 
 
 def _fetch_lt(api) -> tuple[int | None, float | None]:
-    """LT HR (bpm) и темп (s/km) из Garmin Lactate Threshold."""
+    """
+    LT HR (bpm) и темп (s/km). Garmin API варьирует структуру ответа.
+    Логируем сырой ответ при неудаче для отладки.
+    """
     try:
         data = api.get_lactate_threshold()
-        # Garmin возвращает разные ключи в зависимости от версии API
-        lt = (
-            data.get("lactateThresholdHeartRateResponse")
-            or data.get("lastLactateThreshold")
-            or data
-        )
-        hr = lt.get("heartRateBeatsPerMinute")
-        speed_ms = lt.get("speed")          # м/с
-        pace_s = round(1000 / speed_ms) if speed_ms else None  # с/км
-        return (int(hr) if hr else None), pace_s
+
+        # Нормализуем: достаём первый dict-уровень с HR
+        candidates = []
+        if isinstance(data, dict):
+            candidates = [
+                data,
+                data.get("lactateThresholdHeartRateResponse", {}),
+                data.get("lastLactateThreshold", {}),
+                data.get("latestLactateThreshold", {}),
+            ]
+        elif isinstance(data, list) and data:
+            candidates = data
+
+        hr, speed_ms = None, None
+        for c in candidates:
+            if not isinstance(c, dict):
+                continue
+            hr = (
+                c.get("heartRateBeatsPerMinute")
+                or c.get("heartRate")
+                or c.get("lactateThresholdHeartRate")
+                or c.get("bpm")
+            )
+            speed_ms = c.get("speed") or c.get("speedInMetersPerSecond")
+            if hr:
+                break
+
+        if not hr:
+            # Диагностика: логируем структуру чтобы понять правильный ключ
+            print(f"[garmin_performance] LT HR не найден. Структура ответа: "
+                  f"{json.dumps(data, ensure_ascii=False)[:300]}")
+            return None, None
+
+        pace_s = round(1000 / speed_ms) if speed_ms else None
+        return int(hr), pace_s
+
     except Exception as e:
         print(f"[garmin_performance] LT ошибка: {e}")
     return None, None

@@ -75,6 +75,7 @@ class CoachState(TypedDict, total=False):
     # garmin_agent — plan
     upcoming_plan: list[dict]
     garmin_rt:     dict
+    training_status_label: str
 
     # garmin_agent — performance (VO2max, LT, sleep stages)
     vo2max:          float
