@@ -75,6 +75,11 @@ Reasoning: {state.get('readiness_reasoning')}
 Garmin real-time:
 - Body Battery: {(state.get('garmin_rt') or {}).get('body_battery', 'н/д')}
 - Training Readiness: {(state.get('garmin_rt') or {}).get('training_readiness', 'н/д')}
+
+Сезонный контекст:
+- Текущий блок: {state.get('current_block', 'н/д')} ({state.get('season_plan', {}).get('current_block_label', '')})
+- До B-race ({state.get('season_plan', {}).get('b_race_date', '?')}): {state.get('days_to_b_race', 'н/д')} дн.
+- До A-race ({state.get('season_plan', {}).get('a_race_date', '?')}): {state.get('days_to_a_race', 'н/д')} дн.
 """.strip()
 
     print("[synthesis] запрос к Sonnet 4.6...")
