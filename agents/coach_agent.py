@@ -188,6 +188,12 @@ RHR тренд: {'+' if (state.get('rhr_trend') or 0) > 0 else ''}{state.get('rh
 Флаги контекста: {state.get('context_flags', [])}
 Garmin Coach план (ближайшие 7 дней): {state.get('upcoming_plan', [])[:7]}
 
+Сезонный план:
+- Текущий блок: {state.get('current_block', 'н/д')} ({state.get('season_plan', {}).get('current_block_label', '')})
+- Дней до B-race ({state.get('season_plan', {}).get('b_race_distance_km', '?')} km, {state.get('season_plan', {}).get('b_race_date', '?')}): {state.get('days_to_b_race', 'н/д')}
+- Дней до A-race ({state.get('season_plan', {}).get('a_race_distance_km', '?')} km / {state.get('season_plan', {}).get('a_race_elevation_m', '?')} m D+, {state.get('season_plan', {}).get('a_race_date', '?')}): {state.get('days_to_a_race', 'н/д')}
+- B-race стратегия: {state.get('season_plan', {}).get('b_race_strategy', 'н/д')}
+
 События (events.log, последние 14 дней):
 {state.get('events_context') or 'нет событий'}
 

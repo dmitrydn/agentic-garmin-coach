@@ -483,6 +483,7 @@ dependencies = [
     { name = "mcp" },
     { name = "python-dotenv" },
     { name = "python-telegram-bot" },
+    { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
@@ -505,6 +506,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-telegram-bot", specifier = ">=22.7" },
+    { name = "pyyaml", specifier = ">=6.0" },
 ]
 provides-extras = ["dev"]
 

@@ -82,6 +82,10 @@ class CoachState(TypedDict, total=False):
     events_context:     str
     feedback_context:   str
     yesterday_analysis: str
+    season_plan:        dict
+    current_block:      str
+    days_to_b_race:     int
+    days_to_a_race:     int
 
     # coach_agent
     readiness:           str

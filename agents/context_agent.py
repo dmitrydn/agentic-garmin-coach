@@ -1,8 +1,10 @@
 """
 context_agent.py — чистый Python, ноль токенов.
 
-Читает: events.log, feedback.log, analyses/вчера.json, ATHLETE_MEMORY.md.
+Читает: events.log, feedback.log, analyses/вчера.json, ATHLETE_MEMORY.md,
+        plans/gauja_90k_2026.md (YAML-блок с расписанием сезона).
 Вычисляет context_flags из метрик, разрешает аномалии через events.log.
+Автоматически определяет current_block и дни до B/A-race по датам.
 
 Соглашение events.log:
   YYYY-MM-DD [тег] описание
@@ -14,7 +16,11 @@ context_agent.py — чистый Python, ноль токенов.
 
 import json
 import os
+import re
 from datetime import date, timedelta
+from pathlib import Path
+
+import yaml
 
 # Теги, которые объясняют нагрузку/усталость → флаги помечаются known_event
 _LOAD_TAGS    = {"hard-run", "camp-start", "camp-end", "no-sleep", "travel", "heat", "rest-day", "strength"}
@@ -52,13 +58,22 @@ def context_agent_fn(state: dict) -> dict:
         if tag in _ILLNESS_TAGS:
             resolved_flags.append(f"illness:{desc}" if desc else "illness")
 
+    season = _read_season_plan(today)
+
     print(f"[context_agent] flags: {resolved_flags}")
+    print(f"[context_agent] block={season.get('current_block')} "
+          f"B-race={season.get('days_to_b_race')}д "
+          f"A-race={season.get('days_to_a_race')}д")
     return {
         "context_flags":      resolved_flags,
         "athlete_memory":     athlete_memory,
         "events_context":     events,
         "feedback_context":   feedback,
         "yesterday_analysis": yesterday_analysis,
+        "season_plan":        season,
+        "current_block":      season.get("current_block", "unknown"),
+        "days_to_b_race":     season.get("days_to_b_race"),
+        "days_to_a_race":     season.get("days_to_a_race"),
     }
 
 
@@ -134,6 +149,82 @@ def _read_file(path: str) -> str:
         return open(path, encoding="utf-8").read()
     except FileNotFoundError:
         return ""
+
+
+_BLOCK_LABELS = {
+    "recovery":    "Восстановление",
+    "re_entry":    "Re-entry / Аэробный ребилд",
+    "foundation":  "Foundation (LT/VO2)",
+    "specific":    "Specific (вертикаль + объём)",
+    "pre_b_taper": "Pre-B мини-тейпер",
+    "b_race":      "B-RACE день",
+    "a_race_prep": "Recovery + A-race prep",
+    "a_race":      "A-RACE день",
+}
+
+
+def _to_date_str(val) -> str:
+    """Конвертирует datetime.date или строку в ISO-формат."""
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return str(val)
+
+
+def _read_season_plan(today: str) -> dict:
+    """
+    Читает plans/gauja_90k_2026.md, парсит yaml-блок.
+    Вычисляет current_block, days_to_b_race, days_to_a_race автоматически.
+    Возвращает пустой dict при любой ошибке (graceful degradation).
+    """
+    plan_path = Path(__file__).parent.parent / "plans" / "gauja_90k_2026.md"
+    try:
+        content = plan_path.read_text(encoding="utf-8")
+        match = re.search(r"```yaml\n(.*?)```", content, re.DOTALL)
+        if not match:
+            print("[context_agent] season plan: yaml-блок не найден")
+            return {}
+
+        config = yaml.safe_load(match.group(1))
+        today_date = date.fromisoformat(today)
+
+        # Определяем текущий блок по датам
+        schedule = config.get("block_schedule", {})
+        current_block = "unknown"
+        for name, info in schedule.items():
+            if "date" in info:
+                if _to_date_str(info["date"]) == today:
+                    current_block = name
+                    break
+            elif "start" in info and "end" in info:
+                start = date.fromisoformat(_to_date_str(info["start"]))
+                end   = date.fromisoformat(_to_date_str(info["end"]))
+                if start <= today_date <= end:
+                    current_block = name
+                    break
+
+        # Дни до гонок
+        b_date = date.fromisoformat(_to_date_str(config["b_race"]["date"]))
+        a_date = date.fromisoformat(_to_date_str(config["a_race"]["date"]))
+        days_to_b = (b_date - today_date).days
+        days_to_a = (a_date - today_date).days
+
+        return {
+            "current_block":        current_block,
+            "current_block_label":  _BLOCK_LABELS.get(current_block, current_block),
+            "days_to_b_race":       days_to_b,
+            "days_to_a_race":       days_to_a,
+            "b_race_date":          _to_date_str(config["b_race"]["date"]),
+            "b_race_distance_km":   config["b_race"].get("distance_km"),
+            "b_race_strategy":      config["b_race"].get("strategy"),
+            "a_race_date":          _to_date_str(config["a_race"]["date"]),
+            "a_race_distance_km":   config["a_race"].get("distance_km"),
+            "a_race_elevation_m":   config["a_race"].get("elevation_gain_m"),
+            "peak_weekly_tss":      config.get("peak_weekly_tss"),
+            "taper_start":          _to_date_str(config["taper_start_final"]) if config.get("taper_start_final") else None,
+        }
+    except Exception as e:
+        print(f"[context_agent] season plan error: {e}")
+        return {}
 
 
 def _parse_today_events(today: str, events_text: str) -> list[tuple[str, str]]:
