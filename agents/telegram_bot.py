@@ -1,20 +1,22 @@
 """
 telegram_bot.py — отправка Telegram-сообщения + получение RPE-фидбека.
 
-Два режима:
-1. send_message(text) — отправить final_message атлету
-2. Webhook/polling — получить фидбек после тренировки, сохранить в feedback.log и БД
+Три режима:
+1. send_message(text)   — отправить final_message атлету (из pipeline.py)
+2. send_evening_poll()  — отправить вечерний опрос RPE+ноги (standalone/pipeline)
+3. run_bot()            — постоянный процесс: polling + CallbackQuery + job queue 21:00
 
-Фидбек-формат (пишет атлет в чат):
-  rpe 7
-  rpe 6 устал больше обычного
-  отдых (без тренировки)
+Форматы feedback.log:
+  Ручной текст:   YYYY-MM-DD rpe=N notes=текст
+  Telegram-опрос: YYYY-MM-DDThh:mm:ss | TYPE: TELEGRAM_POLL | RPE: N | LEGS_HEAVINESS: N
 
-Сохраняется в:
-  feedback.log        — для context_agent (быстрое чтение)
-  recommendation_log  — для memory_agent (еженедельный анализ)
+Запуск:
+  uv run agents/telegram_bot.py          → тестовое утреннее сообщение
+  uv run agents/telegram_bot.py poll     → отправить вечерний опрос прямо сейчас
+  uv run agents/telegram_bot.py bot      → запустить бота-демона
 """
 
+import datetime
 import logging
 import os
 import re
@@ -22,8 +24,15 @@ import sqlite3
 from datetime import date
 
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 load_dotenv()
 
@@ -35,6 +44,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+# RPE, выбранный на первом шаге опроса. Сбрасывается при рестарте процесса.
+_poll_state: dict[int, dict] = {}
+
 
 # ── Send ──────────────────────────────────────────────────────────────────────
 
@@ -42,25 +54,100 @@ async def send_message(text: str) -> None:
     """Отправить сообщение атлету. Используется из pipeline.py."""
     app = Application.builder().token(BOT_TOKEN).build()
     async with app:
-        await app.bot.send_message(
-            chat_id=CHAT_ID,
-            text=text,
-            parse_mode=None,   # plain text, без markdown
-        )
+        await app.bot.send_message(chat_id=CHAT_ID, text=text, parse_mode=None)
     print(f"[telegram_bot] отправлено, {len(text)} символов")
 
 
-# ── Feedback handlers ─────────────────────────────────────────────────────────
+# ── Evening poll ──────────────────────────────────────────────────────────────
+
+async def send_evening_poll_message(bot) -> None:
+    """Отправляет вечерний опрос с inline-кнопками RPE 1–10."""
+    keyboard = [
+        [InlineKeyboardButton(str(i), callback_data=f"poll_rpe:{i}") for i in range(1, 6)],
+        [InlineKeyboardButton(str(i), callback_data=f"poll_rpe:{i}") for i in range(6, 11)],
+    ]
+    await bot.send_message(
+        chat_id=CHAT_ID,
+        text=(
+            "Дмитрий, как прошёл сегодняшний день?\n\n"
+            "Оцени субъективное усилие (RPE):\n"
+            "1 = совсем легко  ·  10 = максимально тяжело"
+        ),
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+    print("[telegram_bot] вечерний опрос отправлен")
+
+
+async def send_evening_poll() -> None:
+    """Standalone-вызов: отправить вечерний опрос без polling."""
+    app = Application.builder().token(BOT_TOKEN).build()
+    async with app:
+        await send_evening_poll_message(app.bot)
+
+
+# ── Poll callback handler ─────────────────────────────────────────────────────
+
+_LEGS_LABEL = ["", "лёгкие", "немного тяжёлые", "умеренные", "тяжёлые", "очень тяжёлые"]
+
+
+async def handle_poll_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Двухшаговый опрос:
+      Шаг 1. Атлет нажимает RPE → сохраняем в _poll_state, редактируем сообщение на кнопки ног.
+      Шаг 2. Атлет нажимает Legs → сохраняем оба значения, показываем финальный текст.
+    """
+    query = update.callback_query
+    if query.message.chat.id != CHAT_ID:
+        await query.answer()
+        return
+
+    await query.answer("Данные приняты ✅")
+
+    data  = query.data or ""
+    today = date.today().isoformat()
+
+    if data.startswith("poll_rpe:"):
+        rpe = int(data.split(":")[1])
+        _poll_state[CHAT_ID] = {"rpe": rpe}
+
+        keyboard = [[
+            InlineKeyboardButton(str(i), callback_data=f"poll_legs:{i}")
+            for i in range(1, 6)
+        ]]
+        await query.edit_message_text(
+            text=(
+                f"RPE: {rpe} ✅\n\n"
+                "Теперь оцени усталость ног:\n"
+                "1 = лёгкие  ·  5 = очень тяжёлые"
+            ),
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+
+    elif data.startswith("poll_legs:"):
+        legs = int(data.split(":")[1])
+        rpe  = _poll_state.pop(CHAT_ID, {}).get("rpe")
+
+        _save_poll_feedback(today, rpe, legs)
+
+        await query.edit_message_text(
+            text=(
+                "Записал ✅\n\n"
+                f"RPE: {rpe}  |  Ноги: {legs} — {_LEGS_LABEL[legs]}\n\n"
+                "Спокойной ночи, Дмитрий!"
+            )
+        )
+
+
+# ── Text feedback handlers ────────────────────────────────────────────────────
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обрабатывает входящие сообщения от атлета."""
+    """Обрабатывает ручной ввод атлета: rpe 7, отдых, заметки."""
     if update.effective_chat.id != CHAT_ID:
-        return  # игнорируем чужие чаты
+        return
 
-    text    = (update.message.text or "").strip().lower()
-    today   = date.today().isoformat()
+    text  = (update.message.text or "").strip().lower()
+    today = date.today().isoformat()
 
-    # Парсим RPE: "rpe 7", "rpe7", "rpe:7", "усилие 7"
     rpe_match = re.search(r"(?:rpe|усилие)[:\s]*(\d+)", text)
     notes     = re.sub(r"(?:rpe|усилие)[:\s]*\d+", "", text).strip()
 
@@ -74,11 +161,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         _save_feedback(today, rpe=None, notes="пропущено: " + text)
         await update.message.reply_text("📝 Записал: тренировка пропущена")
     else:
-        # Просто записываем как заметку
         _save_feedback(today, rpe=None, notes=text)
-        await update.message.reply_text(
-            "📝 Записал заметку. Для RPE напиши: rpe 7"
-        )
+        await update.message.reply_text("📝 Записал заметку. Для RPE напиши: rpe 7")
 
 
 async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -100,24 +184,19 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     for r in rows:
         rpe_str = f"RPE={r[4]}" if r[4] else "RPE не записан"
         lines.append(f"{r[0]}: {r[1]} ({r[2]}) → {r[3]} | {rpe_str}")
-
     await update.message.reply_text("\n".join(lines))
 
 
-# ── Save feedback ─────────────────────────────────────────────────────────────
+# ── Save helpers ──────────────────────────────────────────────────────────────
 
 def _save_feedback(today: str, rpe: int | None, notes: str) -> None:
-    """Сохраняет в feedback.log и recommendation_log."""
-    # feedback.log для context_agent
+    """Сохраняет ручной ввод в feedback.log и recommendation_log."""
     with open("feedback.log", "a", encoding="utf-8") as f:
         line = f"{today} rpe={rpe}"
         if notes:
             line += f" notes={notes}"
         f.write(line + "\n")
 
-    # recommendation_log для memory_agent.
-    # INSERT OR REPLACE + ON CONFLICT — несовместимые механизмы в SQLite.
-    # Используем чистый upsert: только actual_rpe, остальные поля не трогаем.
     con = sqlite3.connect("coach.db")
     con.execute("""
         INSERT INTO recommendation_log (date, actual_rpe)
@@ -130,15 +209,70 @@ def _save_feedback(today: str, rpe: int | None, notes: str) -> None:
     print(f"[telegram_bot] фидбек сохранён: {today} rpe={rpe} notes={notes!r}")
 
 
+def _save_poll_feedback(today: str, rpe: int | None, legs: int | None) -> None:
+    """Сохраняет данные вечернего опроса в feedback.log, recommendation_log, strength_log."""
+    ts = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    with open("feedback.log", "a", encoding="utf-8") as f:
+        f.write(f"{ts} | TYPE: TELEGRAM_POLL | RPE: {rpe} | LEGS_HEAVINESS: {legs}\n")
+
+    con = sqlite3.connect("coach.db")
+    if rpe is not None:
+        con.execute("""
+            INSERT INTO recommendation_log (date, actual_rpe)
+            VALUES (?, ?)
+            ON CONFLICT(date) DO UPDATE SET actual_rpe=excluded.actual_rpe
+        """, (today, rpe))
+    if legs is not None:
+        # Только legs_heaviness_next_day; остальные поля strength_log остаются NULL.
+        con.execute("""
+            INSERT INTO strength_log (date, legs_heaviness_next_day)
+            VALUES (?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                legs_heaviness_next_day=excluded.legs_heaviness_next_day
+        """, (today, legs))
+    con.commit()
+    con.close()
+
+    print(f"[telegram_bot] вечерний опрос сохранён: {today} rpe={rpe} legs={legs}")
+
+
 # ── Polling bot ───────────────────────────────────────────────────────────────
 
+async def _job_evening_poll(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Job Queue: вызывается каждый день в 21:00."""
+    await send_evening_poll_message(context.bot)
+
+
 def run_bot() -> None:
-    """Запускает polling для получения фидбека. Запускать отдельно от pipeline."""
+    """
+    Запускает бота как постоянный процесс (polling + job queue).
+
+    Архитектура на Малинке:
+      - pipeline.py запускается cron в 07:00 → отправляет утренний брифинг через send_message()
+      - telegram_bot.py bot запускается один раз при старте системы и работает постоянно:
+          * принимает ручной RPE-фидбек от атлета (текстом)
+          * принимает нажатия inline-кнопок вечернего опроса
+          * сам отправляет вечерний опрос в 21:00 через job_queue
+
+    Автозапуск (добавить в crontab):
+      @reboot sleep 10 && cd /path/to/project && uv run agents/telegram_bot.py bot >> logs/bot.log 2>&1 &
+
+    Или через systemd (рекомендуется для стабильности):
+      ExecStart=uv run agents/telegram_bot.py bot
+    """
     app = Application.builder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("status", handle_status))
+    app.add_handler(CallbackQueryHandler(handle_poll_callback, pattern=r"^poll_"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("[telegram_bot] запуск polling...")
+    app.job_queue.run_daily(
+        _job_evening_poll,
+        time=datetime.time(21, 0, 0),
+        name="evening_poll",
+    )
+
+    print("[telegram_bot] запуск polling + вечерний опрос 21:00 ежедневно...")
     app.run_polling()
 
 
@@ -148,11 +282,14 @@ if __name__ == "__main__":
     import asyncio
     import sys
 
-    if len(sys.argv) > 1 and sys.argv[1] == "bot":
-        # uv run agents/telegram_bot.py bot → запустить polling
+    mode = sys.argv[1] if len(sys.argv) > 1 else "send"
+
+    if mode == "bot":
         run_bot()
+    elif mode == "poll":
+        # uv run agents/telegram_bot.py poll → отправить вечерний опрос прямо сейчас
+        asyncio.run(send_evening_poll())
     else:
-        # uv run agents/telegram_bot.py → отправить тестовое сообщение
         test_text = (
             "⚠️ Умеренная готовность\n\n"
             "HRV чуть ниже baseline (-3%), ACWR оптимальный 1.05.\n\n"

@@ -6,12 +6,16 @@ context_agent.py — чистый Python, ноль токенов.
 Вычисляет context_flags из метрик, разрешает аномалии через events.log.
 Автоматически определяет current_block и дни до B/A-race по датам.
 
-Соглашение events.log:
-  YYYY-MM-DD [тег] описание
-  Пример: 2026-05-10 [sleep] ночной переезд, sleep_score=20 — не аномалия
+Источники фидбека (оба читаются, оба поддерживаются):
+  Вариант А — Telegram-опрос (feedback.log):
+    YYYY-MM-DDThh:mm:ss | TYPE: TELEGRAM_POLL | RPE: N | LEGS_HEAVINESS: N
+  Вариант Б — Ручной ввод в events.log или текстом в бот:
+    YYYY-MM-DD rpe=N notes=текст   (feedback.log)
+    YYYY-MM-DD тег описание        (events.log)
 
-Соглашение feedback.log:
-  YYYY-MM-DD rpe=N notes=текст
+Приоритет: events.log всегда участвует в flag-resolution (known_event/illness).
+  Telegram-poll дополняет флаги числовыми значениями RPE и усталости ног.
+  Если poll отсутствует — система работает только на events.log, не падает.
 """
 
 import json
@@ -40,6 +44,9 @@ def context_agent_fn(state: dict) -> dict:
     yesterday_analysis = _read_analysis(today, offset=-1)
     athlete_memory     = _read_file("ATHLETE_MEMORY.md")
 
+    # Вариант А: Telegram-опрос вчерашнего вечера
+    poll = _parse_poll_feedback(today)
+
     flags        = _compute_flags(state)
     today_events = _parse_today_events(today, events)
     today_tags   = {tag for tag, _ in today_events}
@@ -58,22 +65,33 @@ def context_agent_fn(state: dict) -> dict:
         if tag in _ILLNESS_TAGS:
             resolved_flags.append(f"illness:{desc}" if desc else "illness")
 
+    # Добавляем флаги из Telegram-опроса (высокая субъективная усталость)
+    if poll:
+        if poll.get("rpe") is not None and poll["rpe"] >= 8:
+            resolved_flags.append(f"poll_high_rpe:{poll['rpe']}")
+        if poll.get("legs") is not None and poll["legs"] >= 4:
+            resolved_flags.append(f"poll_heavy_legs:{poll['legs']}")
+
     season = _read_season_plan(today)
 
+    feedback_source = "poll+events" if poll else "events_only"
+    print(f"[context_agent] feedback_source={feedback_source} poll={poll}")
     print(f"[context_agent] flags: {resolved_flags}")
     print(f"[context_agent] block={season.get('current_block')} "
           f"B-race={season.get('days_to_b_race')}д "
           f"A-race={season.get('days_to_a_race')}д")
     return {
-        "context_flags":      resolved_flags,
-        "athlete_memory":     athlete_memory,
-        "events_context":     events,
-        "feedback_context":   feedback,
-        "yesterday_analysis": yesterday_analysis,
-        "season_plan":        season,
-        "current_block":      season.get("current_block", "unknown"),
-        "days_to_b_race":     season.get("days_to_b_race"),
-        "days_to_a_race":     season.get("days_to_a_race"),
+        "context_flags":        resolved_flags,
+        "athlete_memory":       athlete_memory,
+        "events_context":       events,
+        "feedback_context":     feedback,
+        "yesterday_analysis":   yesterday_analysis,
+        "season_plan":          season,
+        "current_block":        season.get("current_block", "unknown"),
+        "days_to_b_race":       season.get("days_to_b_race"),
+        "days_to_a_race":       season.get("days_to_a_race"),
+        "poll_rpe":             poll["rpe"]  if poll else None,
+        "poll_legs_heaviness":  poll["legs"] if poll else None,
     }
 
 
@@ -119,6 +137,31 @@ def _compute_flags(state: dict) -> list[str]:
 
 
 # ── File helpers ──────────────────────────────────────────────────────────────
+
+def _parse_poll_feedback(today: str) -> dict | None:
+    """
+    Вариант А: ищет запись TELEGRAM_POLL в feedback.log за вчера.
+    Возвращает {"rpe": int|None, "legs": int|None} или None если данных нет.
+    Берёт последнюю найденную запись (на случай если атлет нажал дважды).
+    """
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    result = None
+    try:
+        for line in open("feedback.log", encoding="utf-8"):
+            if "TELEGRAM_POLL" not in line:
+                continue
+            if not line.startswith(yesterday):
+                continue
+            rpe_m  = re.search(r"RPE:\s*(\d+)", line)
+            legs_m = re.search(r"LEGS_HEAVINESS:\s*(\d+)", line)
+            result = {
+                "rpe":  int(rpe_m.group(1))  if rpe_m  else None,
+                "legs": int(legs_m.group(1)) if legs_m else None,
+            }
+    except FileNotFoundError:
+        pass
+    return result
+
 
 def _read_log(path: str, days: int) -> str:
     """Возвращает строки лога за последние N дней. Макс 30 строк."""
