@@ -44,8 +44,8 @@ def context_agent_fn(state: dict) -> dict:
     yesterday_analysis = _read_analysis(today, offset=-1)
     athlete_memory     = _read_file("ATHLETE_MEMORY.md")
 
-    # Вариант А: Telegram-опрос вчерашнего вечера
-    poll = _parse_poll_feedback(today)
+    # Вариант А: Telegram-опрос — забираем из очереди getUpdates
+    poll = _collect_telegram_poll(today)
 
     flags        = _compute_flags(state)
     today_events = _parse_today_events(today, events)
@@ -138,29 +138,21 @@ def _compute_flags(state: dict) -> list[str]:
 
 # ── File helpers ──────────────────────────────────────────────────────────────
 
-def _parse_poll_feedback(today: str) -> dict | None:
+def _collect_telegram_poll(today: str) -> dict | None:
     """
-    Вариант А: ищет запись TELEGRAM_POLL в feedback.log за вчера.
-    Возвращает {"rpe": int|None, "legs": int|None} или None если данных нет.
-    Берёт последнюю найденную запись (на случай если атлет нажал дважды).
+    Вариант А: забирает ответы на вечерний опрос из очереди Telegram getUpdates.
+    Lazy-import telegram_bot чтобы не тянуть зависимости при standalone-запуске.
+    При любой ошибке возвращает None — пайплайн продолжает работу без poll-данных.
     """
-    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
-    result = None
     try:
-        for line in open("feedback.log", encoding="utf-8"):
-            if "TELEGRAM_POLL" not in line:
-                continue
-            if not line.startswith(yesterday):
-                continue
-            rpe_m  = re.search(r"RPE:\s*(\d+)", line)
-            legs_m = re.search(r"LEGS_HEAVINESS:\s*(\d+)", line)
-            result = {
-                "rpe":  int(rpe_m.group(1))  if rpe_m  else None,
-                "legs": int(legs_m.group(1)) if legs_m else None,
-            }
-    except FileNotFoundError:
-        pass
-    return result
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from telegram_bot import collect_poll_response
+        return collect_poll_response(today)
+    except Exception as e:
+        print(f"[context_agent] poll fetch failed: {e}")
+        return None
 
 
 def _read_log(path: str, days: int) -> str:
