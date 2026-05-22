@@ -43,6 +43,7 @@ logging.basicConfig(
     format="%(asctime)s [telegram_bot] %(message)s",
     level=logging.INFO,
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # RPE, выбранный на первом шаге опроса. Сбрасывается при рестарте процесса.
 _poll_state: dict[int, dict] = {}
