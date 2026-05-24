@@ -94,25 +94,23 @@ async def _async_fetch_poll_response() -> dict | None:
     bot = Bot(token=BOT_TOKEN)
     async with bot:
         updates = await bot.get_updates(timeout=5, limit=100)
+        if not updates:
+            return None
 
-    if not updates:
-        return None
+        rpe, legs = None, None
+        last_id = updates[-1].update_id
 
-    rpe, legs = None, None
-    last_id = updates[-1].update_id
+        for upd in updates:
+            cq = upd.callback_query
+            if not cq or not cq.message or cq.message.chat.id != CHAT_ID:
+                continue
+            data = cq.data or ""
+            if data.startswith("poll_rpe:"):
+                rpe = int(data.split(":")[1])
+            elif data.startswith("poll_legs:"):
+                legs = int(data.split(":")[1])
 
-    for upd in updates:
-        cq = upd.callback_query
-        if not cq or cq.message.chat.id != CHAT_ID:
-            continue
-        data = cq.data or ""
-        if data.startswith("poll_rpe:"):
-            rpe = int(data.split(":")[1])
-        elif data.startswith("poll_legs:"):
-            legs = int(data.split(":")[1])
-
-    # Подтверждаем все обновления — иначе завтра они появятся снова
-    async with bot:
+        # Подтверждаем все обновления — иначе завтра они появятся снова
         await bot.get_updates(offset=last_id + 1, timeout=1)
 
     if rpe is None and legs is None:
