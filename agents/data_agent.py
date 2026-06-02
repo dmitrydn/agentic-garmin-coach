@@ -105,6 +105,16 @@ def init_db(db_path: str = "coach.db") -> None:
         value TEXT
     );
     """)
+    # Schema migrations: add columns introduced after initial deploy
+    for _col_sql in [
+        "ALTER TABLE performance_cache ADD COLUMN hrv_garmin REAL",
+        "ALTER TABLE performance_cache ADD COLUMN rhr_garmin INTEGER",
+    ]:
+        try:
+            con.execute(_col_sql)
+        except Exception:
+            pass  # column already exists
+
     con.commit()
     con.close()
 

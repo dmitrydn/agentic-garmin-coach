@@ -77,7 +77,9 @@ class CoachState(TypedDict, total=False):
     garmin_rt:     dict
     training_status_label: str
 
-    # garmin_agent — performance (VO2max, LT, sleep stages)
+    # garmin_agent — performance (VO2max, LT, sleep stages, today's HRV/RHR from Garmin)
+    hrv_garmin_today: float
+    rhr_garmin_today: int
     vo2max:          float
     vo2max_trend:    str       # "rising" | "stable" | "falling" | "unknown"
     lt_hr:           int       # bpm at lactate threshold

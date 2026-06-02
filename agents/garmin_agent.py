@@ -302,7 +302,7 @@ def _get_performance_cache(today_str: str) -> dict | None:
         row = con.execute("""
             SELECT vo2max, lt_hr, lt_pace_s,
                    sleep_deep_min, sleep_rem_min, sleep_light_min, sleep_awake_min,
-                   fetched_at
+                   fetched_at, hrv_garmin, rhr_garmin
             FROM performance_cache WHERE date=?
         """, (today_str,)).fetchone()
         con.close()
@@ -319,6 +319,8 @@ def _get_performance_cache(today_str: str) -> dict | None:
             "sleep_rem_min":   row[4],
             "sleep_light_min": row[5],
             "sleep_awake_min": row[6],
+            "hrv_garmin":      row[8],
+            "rhr_garmin":      row[9],
         }
     except Exception:
         return None
@@ -331,8 +333,9 @@ def _save_performance_cache(date_str: str, data: dict) -> None:
             INSERT INTO performance_cache
                 (date, vo2max, lt_hr, lt_pace_s,
                  sleep_deep_min, sleep_rem_min, sleep_light_min, sleep_awake_min,
+                 hrv_garmin, rhr_garmin,
                  fetched_at)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(date) DO UPDATE SET
                 vo2max=excluded.vo2max,
                 lt_hr=excluded.lt_hr,
@@ -341,6 +344,8 @@ def _save_performance_cache(date_str: str, data: dict) -> None:
                 sleep_rem_min=excluded.sleep_rem_min,
                 sleep_light_min=excluded.sleep_light_min,
                 sleep_awake_min=excluded.sleep_awake_min,
+                hrv_garmin=excluded.hrv_garmin,
+                rhr_garmin=excluded.rhr_garmin,
                 fetched_at=excluded.fetched_at
         """, (
             date_str,
@@ -351,6 +356,8 @@ def _save_performance_cache(date_str: str, data: dict) -> None:
             data.get("sleep_rem_min"),
             data.get("sleep_light_min"),
             data.get("sleep_awake_min"),
+            data.get("hrv_garmin"),
+            data.get("rhr_garmin"),
             datetime.now().isoformat(),
         ))
         con.commit()
@@ -481,6 +488,31 @@ def _fetch_sleep_stages(api, date_str: str) -> dict:
     return empty
 
 
+def _fetch_garmin_hrv_rhr(api, today_str: str) -> dict:
+    """
+    HRV (lastNightAvg) и RHR из Garmin Connect — данные доступны после утренней
+    синхронизации часов, до того как intervals.icu получит те же значения.
+    """
+    result: dict = {"hrv_garmin": None, "rhr_garmin": None}
+
+    try:
+        hrv_data = api.get_hrv_data(today_str)
+        if hrv_data:
+            summary = hrv_data.get("hrvSummary") or {}
+            result["hrv_garmin"] = summary.get("lastNightAvg")
+    except Exception as e:
+        print(f"[garmin_performance] HRV недоступен: {e}")
+
+    try:
+        stats = api.get_stats(today_str)
+        if stats:
+            result["rhr_garmin"] = stats.get("restingHeartRate")
+    except Exception as e:
+        print(f"[garmin_performance] RHR недоступен: {e}")
+
+    return result
+
+
 def _compute_vo2max_trend(current: float | None, today_str: str) -> str:
     """
     Сравнивает текущий VO2max с последним значением из performance_cache
@@ -531,29 +563,43 @@ def garmin_performance_fn(state: dict) -> dict:
         trend = _compute_vo2max_trend(cached.get("vo2max"), today_str)
         print(f"[garmin_performance] кеш — VO2max={cached.get('vo2max')} ({trend}), "
               f"LT={cached.get('lt_hr')}bpm, "
-              f"sleep deep={cached.get('sleep_deep_min')}мин REM={cached.get('sleep_rem_min')}мин")
-        return {**cached, "vo2max_trend": trend}
+              f"sleep deep={cached.get('sleep_deep_min')}мин REM={cached.get('sleep_rem_min')}мин, "
+              f"HRV={cached.get('hrv_garmin')} RHR={cached.get('rhr_garmin')}")
+        return {
+            **cached,
+            "vo2max_trend":    trend,
+            "hrv_garmin_today": cached.get("hrv_garmin"),
+            "rhr_garmin_today": cached.get("rhr_garmin"),
+        }
 
     try:
         api = _get_api()
 
-        vo2max     = _fetch_vo2max(api, today_str)
+        vo2max           = _fetch_vo2max(api, today_str)
         lt_hr, lt_pace_s = _fetch_lt(api)
-        sleep      = _fetch_sleep_stages(api, today_str)
-        vo2max_trend = _compute_vo2max_trend(vo2max, today_str)
+        sleep            = _fetch_sleep_stages(api, today_str)
+        hrv_rhr          = _fetch_garmin_hrv_rhr(api, today_str)
+        vo2max_trend     = _compute_vo2max_trend(vo2max, today_str)
 
         result = {
-            "vo2max":      vo2max,
-            "lt_hr":       lt_hr,
-            "lt_pace_s":   lt_pace_s,
+            "vo2max":    vo2max,
+            "lt_hr":     lt_hr,
+            "lt_pace_s": lt_pace_s,
             **sleep,
+            **hrv_rhr,
         }
         _save_performance_cache(today_str, result)
 
         print(f"[garmin_performance] VO2max={vo2max} ({vo2max_trend}), "
               f"LT={lt_hr}bpm/{_pace_str(lt_pace_s)}, "
-              f"sleep deep={sleep.get('sleep_deep_min')}мин REM={sleep.get('sleep_rem_min')}мин")
-        return {**result, "vo2max_trend": vo2max_trend}
+              f"sleep deep={sleep.get('sleep_deep_min')}мин REM={sleep.get('sleep_rem_min')}мин, "
+              f"HRV={hrv_rhr.get('hrv_garmin')} RHR={hrv_rhr.get('rhr_garmin')}")
+        return {
+            **result,
+            "vo2max_trend":    vo2max_trend,
+            "hrv_garmin_today": hrv_rhr.get("hrv_garmin"),
+            "rhr_garmin_today": hrv_rhr.get("rhr_garmin"),
+        }
 
     except Exception as e:
         print(f"[garmin_performance] недоступен: {e}")
@@ -562,6 +608,7 @@ def garmin_performance_fn(state: dict) -> dict:
             "lt_hr": None, "lt_pace_s": None,
             "sleep_deep_min": None, "sleep_rem_min": None,
             "sleep_light_min": None, "sleep_awake_min": None,
+            "hrv_garmin_today": None, "rhr_garmin_today": None,
         }
 
 

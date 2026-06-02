@@ -162,18 +162,35 @@ Form=-15 на неделе 1 — сигнал перегрузки.
 def coach_agent_fn(state: dict) -> dict:
     """Sonnet 4.6. Единственный вызов LLM в первой половине пайплайна."""
 
+    # Compute HRV deviation using Garmin value when available (today's reading vs rolling avg)
+    hrv_garmin    = state.get("hrv_garmin_today")
+    hrv_rolling   = state.get("hrv_rolling_avg") or 0.0
+    if hrv_garmin and hrv_rolling > 0:
+        hrv_deviation = round((hrv_garmin - hrv_rolling) / hrv_rolling * 100, 1)
+        hrv_source    = "Garmin (сегодня)"
+    else:
+        hrv_deviation = state.get("hrv_deviation_pct")
+        hrv_source    = "intervals.icu (вчера)"
+
+    rhr_garmin = state.get("rhr_garmin_today")
+    rhr_display = (
+        f"{rhr_garmin} bpm (Garmin, сегодня)"
+        if rhr_garmin
+        else f"{state.get('rhr_today')} bpm (intervals.icu, вчера)"
+    )
+
     user_content = f"""
 Дата: {state.get('date')}
 Мезоцикл неделя: {state.get('mesocycle_week', '?')}
 
-HRV сегодня: {state.get('hrv_today')}
-HRV 7д rolling avg: {state.get('hrv_rolling_avg')}
-HRV отклонение: {state.get('hrv_deviation_pct')}%
+HRV сегодня [{hrv_source}]: {hrv_garmin if hrv_garmin else state.get('hrv_today')}
+HRV 7д rolling avg (intervals.icu): {state.get('hrv_rolling_avg')}
+HRV отклонение: {hrv_deviation}%
 HRV CV недели: {state.get('hrv_cv_week')}
 
 ACWR: {state.get('acwr')} ({state.get('acwr_zone')})
-RHR сегодня: {state.get('rhr_today')} bpm
-RHR тренд: {'+' if (state.get('rhr_trend') or 0) > 0 else ''}{state.get('rhr_trend')} bpm {'⚠ растёт' if state.get('rhr_rising') else ''}
+RHR сегодня: {rhr_display}
+RHR тренд (3д): {'+' if (state.get('rhr_trend') or 0) > 0 else ''}{state.get('rhr_trend')} bpm {'⚠ растёт' if state.get('rhr_rising') else ''}
 
 Дней с последней качественной сессии: {state.get('days_since_quality')}
 80/20 за неделю: {state.get('z1z2_ratio_week')} ({'OK' if state.get('z1z2_compliant') else '⚠ нарушение'})
