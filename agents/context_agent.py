@@ -156,15 +156,32 @@ def _collect_telegram_poll(today: str) -> dict | None:
 
 
 def _read_log(path: str, days: int) -> str:
-    """Возвращает строки лога за последние N дней. Макс 30 строк."""
-    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    """Возвращает строки лога за последние N дней с относительными метками времени."""
+    today  = date.today()
+    cutoff = (today - timedelta(days=days)).isoformat()
     try:
-        lines = open(path, encoding="utf-8").readlines()
-        relevant = [
-            l for l in lines
-            if not l.startswith("#") and l.strip() and l.strip()[:10] >= cutoff
-        ]
-        return "".join(relevant[-30:])
+        result = []
+        for line in open(path, encoding="utf-8"):
+            if line.startswith("#") or not line.strip():
+                continue
+            date_str = line.strip()[:10]
+            if date_str < cutoff:
+                continue
+            try:
+                delta = (today - date.fromisoformat(date_str)).days
+                if delta == 0:
+                    label = "[сегодня, ещё не выполнено]"
+                elif delta == 1:
+                    label = "[вчера]"
+                elif delta > 0:
+                    label = f"[{delta}д назад]"
+                else:
+                    label = f"[через {-delta}д]"
+                line = line[:10] + f" {label}" + line[10:]
+            except ValueError:
+                pass
+            result.append(line)
+        return "".join(result[-30:])
     except FileNotFoundError:
         return ""
 
