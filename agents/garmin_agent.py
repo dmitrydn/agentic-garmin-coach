@@ -134,8 +134,9 @@ def _training_status_label(code: str | None) -> str:
 def _extract_duration_min(api, item: dict) -> int:
     """
     Длительность тренировки из calendar item.
-    calendar API не возвращает duration → запрашиваем детали по workoutId.
-    Поля в порядке приоритета (могут появиться в разных версиях API).
+    Порядок: прямые поля → детали по ID → заголовочная эвристика.
+    fbtAdaptiveWorkout вычисляет длительность динамически на серверах Garmin,
+    поэтому calendar API часто не содержит duration — используем ID-запрос.
     """
     for field in ("durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs",
                   "estimatedDurationInSecs"):
@@ -148,18 +149,52 @@ def _extract_duration_min(api, item: dict) -> int:
         if val:
             return int(val)
 
-    # Garmin Adaptive Coach (fbtAdaptiveWorkout) не возвращает длительность
-    # через calendar API — она вычисляется динамически. Используем эвристику.
+    # Попытка получить реальную длительность через detail-эндпоинт
+    _DURATION_FIELDS = (
+        "durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs",
+        "estimatedDurationInSecs",
+    )
+    item_id = item.get("id") or item.get("scheduledWorkoutId")
+    workout_id = item.get("workoutId")
+    if item_id:
+        try:
+            details = api.get_scheduled_workout_by_id(item_id)
+            print(f"[garmin_plan] detail keys for id={item_id}: {list(details.keys())[:15]}")
+            for field in _DURATION_FIELDS:
+                val = details.get(field)
+                if val:
+                    return round(val / 60)
+            val = details.get("durationMinutes")
+            if val:
+                return int(val)
+        except Exception as e:
+            print(f"[garmin_plan] get_scheduled_workout_by_id({item_id}) failed: {e}")
+
+    if workout_id:
+        try:
+            details = api.get_workout_by_id(workout_id)
+            print(f"[garmin_plan] workout detail keys for workoutId={workout_id}: {list(details.keys())[:15]}")
+            for field in _DURATION_FIELDS:
+                val = details.get(field)
+                if val:
+                    return round(val / 60)
+        except Exception as e:
+            print(f"[garmin_plan] get_workout_by_id({workout_id}) failed: {e}")
+
+    # Последний резерв: заголовочная эвристика.
+    # Значения откалиброваны под профиль атлета 90km ultra.
     title = (item.get("title") or "").lower()
     _DURATION_HEURISTIC = {
         "recovery": 30, "easy": 45, "base": 50,
-        "aerobic": 50, "threshold": 55, "tempo": 55,
-        "interval": 55, "speed": 55, "long": 90, "endurance": 80,
+        "aerobic": 60, "threshold": 55, "tempo": 55,
+        "interval": 55, "speed": 55, "long": 130, "endurance": 100,
     }
     for keyword, mins in _DURATION_HEURISTIC.items():
         if keyword in title:
+            print(f"[garmin_plan] duration heuristic '{keyword}'→{mins}мин для '{item.get('title')}'")
             return mins
 
+    print(f"[garmin_plan] duration unknown для '{item.get('title')}', fields={list(item.keys())[:15]}")
     return 0
 
 
