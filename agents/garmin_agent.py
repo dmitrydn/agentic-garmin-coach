@@ -131,9 +131,13 @@ def _training_status_label(code: str | None) -> str:
     return _TRAINING_STATUS_LABELS.get(code, code)
 
 
-def _extract_duration_min(api, item: dict) -> int:
+def _extract_duration_min(api, item: dict) -> tuple[int, bool]:
     """
     Длительность тренировки из calendar item.
+    Возвращает (duration_min, is_estimated).
+    is_estimated=True означает что Garmin не вернул реальную длительность
+    и использована эвристика по заголовку тренировки.
+
     Порядок: прямые поля → детали по ID → заголовочная эвристика.
     fbtAdaptiveWorkout вычисляет длительность динамически на серверах Garmin,
     поэтому calendar API часто не содержит duration — используем ID-запрос.
@@ -142,12 +146,12 @@ def _extract_duration_min(api, item: dict) -> int:
                   "estimatedDurationInSecs"):
         val = item.get(field)
         if val:
-            return round(val / 60)
+            return round(val / 60), False
 
     for field in ("durationMinutes", "duration_min"):
         val = item.get(field)
         if val:
-            return int(val)
+            return int(val), False
 
     # Попытка получить реальную длительность через detail-эндпоинт
     _DURATION_FIELDS = (
@@ -163,10 +167,10 @@ def _extract_duration_min(api, item: dict) -> int:
             for field in _DURATION_FIELDS:
                 val = details.get(field)
                 if val:
-                    return round(val / 60)
+                    return round(val / 60), False
             val = details.get("durationMinutes")
             if val:
-                return int(val)
+                return int(val), False
         except Exception as e:
             print(f"[garmin_plan] get_scheduled_workout_by_id({item_id}) failed: {e}")
 
@@ -177,7 +181,7 @@ def _extract_duration_min(api, item: dict) -> int:
             for field in _DURATION_FIELDS:
                 val = details.get(field)
                 if val:
-                    return round(val / 60)
+                    return round(val / 60), False
         except Exception as e:
             print(f"[garmin_plan] get_workout_by_id({workout_id}) failed: {e}")
 
@@ -192,10 +196,10 @@ def _extract_duration_min(api, item: dict) -> int:
     for keyword, mins in _DURATION_HEURISTIC.items():
         if keyword in title:
             print(f"[garmin_plan] duration heuristic '{keyword}'→{mins}мин для '{item.get('title')}'")
-            return mins
+            return mins, True
 
     print(f"[garmin_plan] duration unknown для '{item.get('title')}', fields={list(item.keys())[:15]}")
-    return 0
+    return 0, True
 
 
 def _extract_morning_battery(bb_list: list, target_date: str) -> int | None:
@@ -254,12 +258,13 @@ def garmin_plan_fn(state: dict) -> dict:
 
         plan = []
         for w in raw_workouts:
-            duration_min = _extract_duration_min(api, w)
+            duration_min, duration_estimated = _extract_duration_min(api, w)
             plan.append({
-                "date":         w["date"],
-                "type":         w.get("sportTypeKey") or "running",
-                "description":  w.get("title"),
-                "duration_min": duration_min,
+                "date":               w["date"],
+                "type":               w.get("sportTypeKey") or "running",
+                "description":        w.get("title"),
+                "duration_min":       duration_min,
+                "duration_estimated": duration_estimated,
             })
 
         _save_garmin_plan(today_str, plan)

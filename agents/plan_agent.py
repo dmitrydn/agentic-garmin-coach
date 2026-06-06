@@ -51,12 +51,15 @@ Z5: максимальный
   "type": "easy|quality|long|back-to-back|strength|rest",
   "title": "Лёгкий бег в Z1-Z2",
   "duration_min": 50,
+  "duration_estimated": false,
   "zones": ["Z1", "Z2"],
   "description": "детальное описание на русском, 3-5 предложений",
   "cautions": ["пить каждые 20 мин", "пульс не выше 145"],
   "garmin_plan_used": true,
   "return_protocol": null
 }
+
+Поле duration_estimated: скопируй значение из поля duration_estimated тренировки Garmin Coach на сегодня (true/false). Если тренировки нет — false.
 
 Поле return_protocol: null при обычной тренировке.
 При illness-флаге — объект с чек-листом допуска к нагрузке:

@@ -40,6 +40,8 @@ SYNTHESIS_SYSTEM = """
 - Если есть аномалии в флагах — объясни кратко и понятно
 - Если завтра гонка или ключевая тренировка — упомяни в конце
 - Длина: 250-400 слов, не больше
+- Если поле duration_note присутствует в данных тренировки — включи его дословно
+  сразу после указания длительности (в скобках или отдельной строкой)
 
 ФОРМАТ: обычный текст с эмодзи. Без markdown заголовков.
 """
@@ -53,13 +55,22 @@ def synthesis_fn(state: dict) -> dict:
     rec      = state.get("recommendation") or {}
     hydration = state.get("hydration_schedule") or []
 
+    # Добавляем дисклеймер детерминированно — LLM не должен угадывать источник
+    rec_for_prompt = dict(rec)
+    if rec.get("duration_estimated"):
+        rec_for_prompt["duration_note"] = (
+            f"⚠️ {rec.get('duration_min')} мин — оценка агента, "
+            "Garmin Coach не вернул реальную длительность. "
+            "Проверь план в приложении Garmin."
+        )
+
     user_content = f"""
 Дата: {state.get('date')}
 Readiness: {state.get('readiness')} (score {state.get('readiness_score')})
 Reasoning: {state.get('readiness_reasoning')}
 
 Тренировка:
-{json.dumps(rec, ensure_ascii=False, indent=2)}
+{json.dumps(rec_for_prompt, ensure_ascii=False, indent=2)}
 
 Гидрация:
 {chr(10).join(f'- {h}' for h in hydration)}
