@@ -14,7 +14,7 @@
 | `garmin_agent`    | Python-функция  | —                   | cache check → API → parse          |
 | `context_agent`   | Python-функция  | —                   | чтение файлов, флаги               |
 | `hydration_agent` | Python-функция  | —                   | rule-based расписание              |
-| `coach_agent`     | LLM             | `claude-sonnet-4-6` | readiness, интерпретация метрик    |
+| `coach_agent`     | LLM             | `claude-opus-4-8`   | readiness, интерпретация метрик    |
 | `plan_agent`      | LLM             | `claude-sonnet-4-6` | рекомендация тренировки дня        |
 | `synthesis_agent` | LLM             | `claude-sonnet-4-6` | Telegram-сообщение                 |
 | `memory_agent`    | LLM             | `claude-sonnet-4-6` | обновление ATHLETE_MEMORY.md       |

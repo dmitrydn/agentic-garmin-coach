@@ -229,9 +229,9 @@ Garmin Coach план (ближайшие 7 дней): {state.get('upcoming_plan
         "{mesocycle_week}", str(state.get("mesocycle_week", 1))
     )
 
-    print("[coach_agent] запрос к Opus 4.7...")
+    print("[coach_agent] запрос к Opus 4.8...")
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model="claude-opus-4-8",
         max_tokens=1000,
         system=system,
         messages=[{"role": "user", "content": user_content}],
