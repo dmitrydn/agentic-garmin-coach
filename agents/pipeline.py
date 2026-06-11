@@ -38,6 +38,7 @@ from context_agent import context_agent_fn
 from data_agent import data_agent_fn, init_db
 from garmin_agent import garmin_plan_fn, garmin_performance_fn, garmin_rt_fn
 from hydration_agent import hydration_fn
+from form_agent import form_agent_fn
 from memory_agent import memory_agent_fn
 from metrics import metrics_fn, strength_load_today
 from plan_agent import plan_agent_fn
@@ -375,10 +376,22 @@ def run_pipeline(dry_run: bool = False) -> CoachState:
     # feedback_loop: hrv_next_day вчерашней рекомендации
     _feedback_loop(final_state)
 
-    # Memory Agent — только по воскресеньям (weekday 6)
+    # Sunday agents: memory + form report
     if date.today().weekday() == 6:
         print("\n[pipeline] воскресенье → memory_agent")
         memory_agent_fn(final_state)
+
+        print("\n[pipeline] воскресенье → form_agent")
+        form_result = form_agent_fn(final_state)
+        form_report = form_result.get("form_report", "")
+        if form_report and not dry_run:
+            asyncio.run(send_message(form_report))
+            print("[pipeline] form_report отправлен в Telegram")
+        elif form_report and dry_run:
+            print("[pipeline] DRY RUN — form_report не отправляется:")
+            print("─" * 50)
+            print(form_report)
+            print("─" * 50)
 
     elapsed = (datetime.now() - start).total_seconds()
     print(f"\n{'='*55}")

@@ -40,21 +40,27 @@ def init_db(db_path: str = "coach.db") -> None:
     );
 
     CREATE TABLE IF NOT EXISTS activity_cache (
-        id               TEXT PRIMARY KEY,
-        date             TEXT,
-        name             TEXT,
-        distance_m       REAL,
-        duration_s       INTEGER,
-        avg_hr           REAL,
-        training_load    REAL,
-        adjusted_load    REAL,
-        avg_pace_s       REAL,
-        elevation_gain_m REAL,
-        time_in_z1       INTEGER,
-        time_in_z2       INTEGER,
-        surface          TEXT,
-        rpe              INTEGER,
-        synced_at        TEXT
+        id                   TEXT PRIMARY KEY,
+        date                 TEXT,
+        name                 TEXT,
+        distance_m           REAL,
+        duration_s           INTEGER,
+        avg_hr               REAL,
+        training_load        REAL,
+        adjusted_load        REAL,
+        avg_pace_s           REAL,
+        elevation_gain_m     REAL,
+        time_in_z1           INTEGER,
+        time_in_z2           INTEGER,
+        surface              TEXT,
+        rpe                  INTEGER,
+        synced_at            TEXT,
+        avg_cadence          REAL,
+        avg_gct_ms           REAL,
+        avg_vertical_osc_mm  REAL,
+        avg_vertical_ratio   REAL,
+        avg_stride_length_m  REAL,
+        efficiency_factor    REAL
     );
 
     CREATE TABLE IF NOT EXISTS garmin_cache (
@@ -109,6 +115,12 @@ def init_db(db_path: str = "coach.db") -> None:
     for _col_sql in [
         "ALTER TABLE performance_cache ADD COLUMN hrv_garmin REAL",
         "ALTER TABLE performance_cache ADD COLUMN rhr_garmin INTEGER",
+        "ALTER TABLE activity_cache ADD COLUMN avg_cadence REAL",
+        "ALTER TABLE activity_cache ADD COLUMN avg_gct_ms REAL",
+        "ALTER TABLE activity_cache ADD COLUMN avg_vertical_osc_mm REAL",
+        "ALTER TABLE activity_cache ADD COLUMN avg_vertical_ratio REAL",
+        "ALTER TABLE activity_cache ADD COLUMN avg_stride_length_m REAL",
+        "ALTER TABLE activity_cache ADD COLUMN efficiency_factor REAL",
     ]:
         try:
             con.execute(_col_sql)
@@ -192,15 +204,25 @@ def save_activities(records: list[dict], db_path: str = "coach.db") -> None:
         dist = a.get("distance") or 0
         dur  = a.get("elapsed_time") or 0
         pace = (dur / (dist / 1000)) if dist > 0 else None
+
+        # EF: prefer pre-computed field, fall back to watts/hr
+        ef = a.get("efficiency_factor")
+        if not ef:
+            watts = a.get("icu_average_watts") or 0
+            hr    = a.get("average_heartrate") or 0
+            ef    = round(watts / hr, 4) if hr > 0 and watts > 0 else None
+
         # ON CONFLICT DO UPDATE — не трогаем rpe (пишет telegram_bot),
         # adjusted_load (пишет metrics_fn), surface (вручную).
-        # Обновляем только поля из intervals.icu.
+        # Обновляем только поля из intervals.icu (включая running dynamics).
         con.execute("""
             INSERT INTO activity_cache
                 (id, date, name, distance_m, duration_s, avg_hr,
                  training_load, adjusted_load, avg_pace_s, elevation_gain_m,
-                 time_in_z1, time_in_z2, surface, rpe, synced_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 time_in_z1, time_in_z2, surface, rpe, synced_at,
+                 avg_cadence, avg_gct_ms, avg_vertical_osc_mm,
+                 avg_vertical_ratio, avg_stride_length_m, efficiency_factor)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 date=excluded.date,
                 name=excluded.name,
@@ -212,6 +234,12 @@ def save_activities(records: list[dict], db_path: str = "coach.db") -> None:
                 elevation_gain_m=excluded.elevation_gain_m,
                 time_in_z1=excluded.time_in_z1,
                 time_in_z2=excluded.time_in_z2,
+                avg_cadence=excluded.avg_cadence,
+                avg_gct_ms=excluded.avg_gct_ms,
+                avg_vertical_osc_mm=excluded.avg_vertical_osc_mm,
+                avg_vertical_ratio=excluded.avg_vertical_ratio,
+                avg_stride_length_m=excluded.avg_stride_length_m,
+                efficiency_factor=excluded.efficiency_factor,
                 synced_at=excluded.synced_at
         """,
             (
@@ -230,6 +258,12 @@ def save_activities(records: list[dict], db_path: str = "coach.db") -> None:
                 None,                        # surface — вручную
                 None,                        # rpe — из Telegram
                 now,
+                a.get("average_cadence"),
+                a.get("avg_ground_contact_time"),
+                a.get("avg_vertical_oscillation"),
+                a.get("avg_vertical_ratio"),
+                a.get("avg_stride_length"),
+                ef,
             )
         )
     con.commit()

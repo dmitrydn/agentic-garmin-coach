@@ -1,0 +1,21 @@
+[
+  {
+    "id": "act-fixture-001",
+    "name": "Morning Easy Run",
+    "start_date_local": "2026-06-09T07:15:00",
+    "icu_training_load": 42.0,
+    "average_heartrate": 128.0,
+    "distance": 9500,
+    "elapsed_time": 3300,
+    "total_elevation_gain": 75.0,
+    "time_in_z1": 1800,
+    "time_in_z2": 900,
+    "average_cadence": 172.0,
+    "icu_average_watts": 165.0,
+    "efficiency_factor": null,
+    "avg_ground_contact_time": null,
+    "avg_vertical_oscillation": null,
+    "avg_vertical_ratio": null,
+    "avg_stride_length": null
+  }
+]

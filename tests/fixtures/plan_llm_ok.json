@@ -1,0 +1,11 @@
+{
+  "type": "easy",
+  "title": "Лёгкий бег в Z1-Z2",
+  "duration_min": 44,
+  "duration_estimated": false,
+  "zones": ["Z1", "Z2"],
+  "description": "44 минуты по тропам Sūniši, пульс 120-135 bpm (~131 целевой). Первые 10 мин разминка Z1, далее Z2.",
+  "cautions": ["пульс не выше 140", "пить на 20-й минуте"],
+  "garmin_plan_used": true,
+  "return_protocol": null
+}

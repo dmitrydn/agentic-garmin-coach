@@ -1,0 +1,26 @@
+{
+  "planId": "plan-abc-123",
+  "taskList": [
+    {
+      "taskWorkout": {
+        "workoutUuid": "uuid-base-001",
+        "estimatedDurationInSecs": 2640,
+        "workoutDescription": "131bpm"
+      }
+    },
+    {
+      "taskWorkout": {
+        "workoutUuid": "uuid-vo2-002",
+        "estimatedDurationInSecs": 2580,
+        "workoutDescription": "5x3:00@166bpm"
+      }
+    },
+    {
+      "taskWorkout": {
+        "workoutUuid": "uuid-long-003",
+        "estimatedDurationInSecs": 9180,
+        "workoutDescription": "131bpm"
+      }
+    }
+  ]
+}

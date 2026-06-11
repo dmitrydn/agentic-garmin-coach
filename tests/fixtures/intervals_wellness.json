@@ -1,0 +1,15 @@
+[
+  {"id": "2026-05-28", "ctl": 48.0, "atl": 44.0, "hrv": 58.0, "restingHR": 48, "sleepScore": 71},
+  {"id": "2026-05-29", "ctl": 48.5, "atl": 45.0, "hrv": 60.0, "restingHR": 47, "sleepScore": 74},
+  {"id": "2026-05-30", "ctl": 49.0, "atl": 46.0, "hrv": 59.0, "restingHR": 48, "sleepScore": 72},
+  {"id": "2026-05-31", "ctl": 49.5, "atl": 47.0, "hrv": 61.0, "restingHR": 47, "sleepScore": 76},
+  {"id": "2026-06-01", "ctl": 50.0, "atl": 48.0, "hrv": 62.0, "restingHR": 47, "sleepScore": 75},
+  {"id": "2026-06-02", "ctl": 50.5, "atl": 49.0, "hrv": 63.0, "restingHR": 46, "sleepScore": 78},
+  {"id": "2026-06-03", "ctl": 51.0, "atl": 50.0, "hrv": 61.0, "restingHR": 47, "sleepScore": 73},
+  {"id": "2026-06-04", "ctl": 51.5, "atl": 50.5, "hrv": 64.0, "restingHR": 46, "sleepScore": 79},
+  {"id": "2026-06-05", "ctl": 52.0, "atl": 51.0, "hrv": 62.0, "restingHR": 47, "sleepScore": 77},
+  {"id": "2026-06-06", "ctl": 52.5, "atl": 51.5, "hrv": 65.0, "restingHR": 46, "sleepScore": 80},
+  {"id": "2026-06-07", "ctl": 53.0, "atl": 52.0, "hrv": 63.0, "restingHR": 47, "sleepScore": 76},
+  {"id": "2026-06-08", "ctl": 53.5, "atl": 52.5, "hrv": 66.0, "restingHR": 46, "sleepScore": 81},
+  {"id": "2026-06-09", "ctl": 54.0, "atl": 53.0, "hrv": 64.0, "restingHR": 47, "sleepScore": 78}
+]

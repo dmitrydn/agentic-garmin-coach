@@ -1,0 +1,34 @@
+{
+  "calendarItems": [
+    {
+      "itemType": "fbtAdaptiveWorkout",
+      "date": "2026-06-10",
+      "title": "Base Run",
+      "sportTypeKey": "running",
+      "workoutUuid": "uuid-base-001",
+      "trainingPlanId": "plan-abc-123",
+      "workoutId": null,
+      "id": 1781076593000
+    },
+    {
+      "itemType": "fbtAdaptiveWorkout",
+      "date": "2026-06-11",
+      "title": "VO2 Max",
+      "sportTypeKey": "running",
+      "workoutUuid": "uuid-vo2-002",
+      "trainingPlanId": "plan-abc-123",
+      "workoutId": null,
+      "id": 1781162993000
+    },
+    {
+      "itemType": "fbtAdaptiveWorkout",
+      "date": "2026-06-13",
+      "title": "Long Run",
+      "sportTypeKey": "running",
+      "workoutUuid": "uuid-long-003",
+      "trainingPlanId": "plan-abc-123",
+      "workoutId": null,
+      "id": 1781335793000
+    }
+  ]
+}

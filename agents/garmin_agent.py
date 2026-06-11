@@ -131,39 +131,79 @@ def _training_status_label(code: str | None) -> str:
     return _TRAINING_STATUS_LABELS.get(code, code)
 
 
+def _steps_duration_s(steps: list) -> int:
+    """
+    Рекурсивно суммирует продолжительность шагов тренировки (секунды).
+    Обрабатывает RepeatGroupDTO (repeats × inner steps) и time-based шаги.
+
+    Garmin хранит длительность интервальных тренировок в структуре шагов,
+    а не в top-level поле — поэтому длинные пробежки API отдаёт сразу, а
+    VO2max/интервалы нужно считать вручную.
+    """
+    total = 0
+    for step in steps:
+        if step.get("type") == "RepeatGroupDTO":
+            n = step.get("numberOfIterations") or 1
+            inner = step.get("workoutSteps") or []
+            total += n * _steps_duration_s(inner)
+        else:
+            end_cond = step.get("endCondition") or {}
+            cond_key = (end_cond.get("conditionTypeKey") or "").lower()
+            if "time" in cond_key:
+                total += step.get("endConditionValue") or 0
+    return total
+
+
+def _duration_from_segments(data: dict) -> int | None:
+    """
+    Ищет workoutSegments в data или data['workout'] и суммирует шаги.
+    Возвращает секунды или None если нет шагов или итог = 0.
+    """
+    for root in (data, data.get("workout") or {}):
+        segments = root.get("workoutSegments") or []
+        total = 0
+        for seg in segments:
+            total += _steps_duration_s(seg.get("workoutSteps") or [])
+        if total > 0:
+            return total
+    return None
+
+
 def _extract_duration_min(api, item: dict) -> tuple[int, bool]:
     """
     Длительность тренировки из calendar item.
     Возвращает (duration_min, is_estimated).
-    is_estimated=True означает что Garmin не вернул реальную длительность
-    и использована эвристика по заголовку тренировки.
 
-    Порядок: прямые поля → детали по ID → заголовочная эвристика.
-    fbtAdaptiveWorkout вычисляет длительность динамически на серверах Garmin,
-    поэтому calendar API часто не содержит duration — используем ID-запрос.
+    Порядок:
+    1. Прямые поля calendar item (быстро, но часто пусто для fbtAdaptiveWorkout)
+    2. get_scheduled_workout_by_id → top-level поля → парсинг шагов
+    3. get_workout_by_id → top-level поля → парсинг шагов
+    4. Заголовочная эвристика (последний резерв)
+
+    fbtAdaptiveWorkout не хранит длительность в calendar item.
+    Длинные пробежки Garmin отдаёт в top-level поле, но VO2max / интервалы —
+    только в структуре шагов (workoutSegments → RepeatGroupDTO).
     """
-    for field in ("durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs",
-                  "estimatedDurationInSecs"):
+    _DURATION_FIELDS = (
+        "durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs",
+        "estimatedDurationInSecs",
+    )
+
+    # 1. Прямые поля
+    for field in _DURATION_FIELDS:
         val = item.get(field)
         if val:
             return round(val / 60), False
-
     for field in ("durationMinutes", "duration_min"):
         val = item.get(field)
         if val:
             return int(val), False
 
-    # Попытка получить реальную длительность через detail-эндпоинт
-    _DURATION_FIELDS = (
-        "durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs",
-        "estimatedDurationInSecs",
-    )
+    # 2. get_scheduled_workout_by_id
     item_id = item.get("id") or item.get("scheduledWorkoutId")
-    workout_id = item.get("workoutId")
     if item_id:
         try:
             details = api.get_scheduled_workout_by_id(item_id)
-            print(f"[garmin_plan] detail keys for id={item_id}: {list(details.keys())[:15]}")
             for field in _DURATION_FIELDS:
                 val = details.get(field)
                 if val:
@@ -171,22 +211,30 @@ def _extract_duration_min(api, item: dict) -> tuple[int, bool]:
             val = details.get("durationMinutes")
             if val:
                 return int(val), False
+            total_s = _duration_from_segments(details)
+            if total_s:
+                print(f"[garmin_plan] duration from steps: {round(total_s/60)}мин для '{item.get('title')}'")
+                return round(total_s / 60), False
         except Exception as e:
             print(f"[garmin_plan] get_scheduled_workout_by_id({item_id}) failed: {e}")
 
+    # 3. get_workout_by_id
+    workout_id = item.get("workoutId")
     if workout_id:
         try:
             details = api.get_workout_by_id(workout_id)
-            print(f"[garmin_plan] workout detail keys for workoutId={workout_id}: {list(details.keys())[:15]}")
             for field in _DURATION_FIELDS:
                 val = details.get(field)
                 if val:
                     return round(val / 60), False
+            total_s = _duration_from_segments(details)
+            if total_s:
+                print(f"[garmin_plan] duration from steps (workout): {round(total_s/60)}мин для '{item.get('title')}'")
+                return round(total_s / 60), False
         except Exception as e:
             print(f"[garmin_plan] get_workout_by_id({workout_id}) failed: {e}")
 
-    # Последний резерв: заголовочная эвристика.
-    # Значения откалиброваны под профиль атлета 90km ultra.
+    # 4. Заголовочная эвристика — последний резерв
     title = (item.get("title") or "").lower()
     _DURATION_HEURISTIC = {
         "recovery": 30, "easy": 45, "base": 50,
@@ -256,13 +304,49 @@ def garmin_plan_fn(state: dict) -> dict:
             and today_str <= w["date"] <= end_date.isoformat()
         ]
 
+        # Получаем точные длительности из Adaptive Training Plan (одним запросом).
+        # fbtAdaptiveWorkout не хранит duration в calendar items — только в taskList
+        # плана, где каждая задача содержит estimatedDurationInSecs и workoutUuid.
+        atp_data: dict[str, dict] = {}  # workoutUuid → {duration_s, detail}
+        atp_plan_id = next(
+            (w.get("trainingPlanId") for w in raw_workouts if w.get("trainingPlanId")),
+            None
+        )
+        if atp_plan_id:
+            try:
+                atp = api.get_adaptive_training_plan_by_id(atp_plan_id)
+                for task in (atp.get("taskList") or []):
+                    tw = task.get("taskWorkout") or {}
+                    uuid = tw.get("workoutUuid")
+                    dur  = tw.get("estimatedDurationInSecs")
+                    if uuid and dur:
+                        atp_data[uuid] = {
+                            "duration_s": dur,
+                            "detail": tw.get("workoutDescription"),
+                        }
+                print(f"[garmin_plan] ATP plan {atp_plan_id}: {len(atp_data)} длительностей")
+            except Exception as e:
+                print(f"[garmin_plan] get_adaptive_training_plan_by_id({atp_plan_id}) failed: {e}")
+
         plan = []
         for w in raw_workouts:
-            duration_min, duration_estimated = _extract_duration_min(api, w)
+            uuid     = w.get("workoutUuid")
+            atp_item = atp_data.get(uuid) if uuid else None
+
+            if atp_item:
+                duration_min       = round(atp_item["duration_s"] / 60)
+                duration_estimated = False
+                workout_detail     = atp_item.get("detail")  # "131bpm" / "5x3:00@166bpm"
+                print(f"[garmin_plan] {w['date']} '{w.get('title')}': {duration_min}мин из ATP plan")
+            else:
+                duration_min, duration_estimated = _extract_duration_min(api, w)
+                workout_detail = None
+
             plan.append({
                 "date":               w["date"],
                 "type":               w.get("sportTypeKey") or "running",
                 "description":        w.get("title"),
+                "workout_detail":     workout_detail,
                 "duration_min":       duration_min,
                 "duration_estimated": duration_estimated,
             })
@@ -654,9 +738,101 @@ def garmin_performance_fn(state: dict) -> dict:
 
 # ── Standalone test ───────────────────────────────────────────────────────────
 
+def _debug_workout_raw(today_str: str | None = None) -> None:
+    """
+    Выводит сырой ответ Garmin API для тренировок текущей недели.
+    Нужен для диагностики проблем с парсингом длительности.
+    Запуск: uv run agents/garmin_agent.py --debug
+    """
+    today_str = today_str or date.today().isoformat()
+    today     = date.fromisoformat(today_str)
+    end_date  = today + timedelta(days=6)
+
+    api = _get_api()
+
+    months = {(today.year, today.month)}
+    if (end_date.year, end_date.month) != (today.year, today.month):
+        months.add((end_date.year, end_date.month))
+
+    all_items: list = []
+    for yr, mo in months:
+        r = api.get_scheduled_workouts(yr, mo)
+        all_items.extend(r.get("calendarItems", []))
+
+    raw_workouts = [
+        w for w in all_items
+        if w.get("itemType") == "fbtAdaptiveWorkout"
+        and w.get("date")
+        and today_str <= w["date"] <= end_date.isoformat()
+    ]
+
+    print(f"\n[debug] fbtAdaptiveWorkout на {today_str}..{end_date.isoformat()}: {len(raw_workouts)} шт.")
+    for w in raw_workouts:
+        print(f"\n{'─'*60}")
+        print(f"  date={w.get('date')}  title='{w.get('title')}'")
+        print(f"  item keys: {sorted(w.keys())}")
+        print(f"  durationInSeconds={w.get('durationInSeconds')}  "
+              f"scheduledWorkoutEstimatedDurationInSecs={w.get('scheduledWorkoutEstimatedDurationInSecs')}  "
+              f"estimatedDurationInSecs={w.get('estimatedDurationInSecs')}")
+        print(f"  id={w.get('id')}  scheduledWorkoutId={w.get('scheduledWorkoutId')}  workoutId={w.get('workoutId')}")
+
+        item_id = w.get("id") or w.get("scheduledWorkoutId")
+        if item_id:
+            try:
+                details = api.get_scheduled_workout_by_id(item_id)
+                print(f"\n  get_scheduled_workout_by_id({item_id}):")
+                print(f"    top-level keys: {sorted(details.keys())[:20]}")
+                for f in ("durationInSeconds", "scheduledWorkoutEstimatedDurationInSecs", "estimatedDurationInSecs", "durationMinutes"):
+                    if details.get(f):
+                        print(f"    {f} = {details.get(f)}")
+                segs = details.get("workoutSegments") or (details.get("workout") or {}).get("workoutSegments") or []
+                print(f"    workoutSegments: {len(segs)} сегментов")
+                for i, seg in enumerate(segs):
+                    steps = seg.get("workoutSteps") or []
+                    print(f"      seg[{i}]: {len(steps)} шагов")
+                    for j, step in enumerate(steps[:8]):
+                        ec = step.get("endCondition") or {}
+                        print(f"        step[{j}]: type={step.get('type')}  "
+                              f"endCondition.conditionTypeKey={ec.get('conditionTypeKey')}  "
+                              f"endConditionValue={step.get('endConditionValue')}  "
+                              f"numberOfIterations={step.get('numberOfIterations')}")
+                        if step.get("workoutSteps"):
+                            inner = step["workoutSteps"]
+                            print(f"          inner steps: {len(inner)}")
+                            for k, s in enumerate(inner[:5]):
+                                ec2 = s.get("endCondition") or {}
+                                print(f"            inner[{k}]: type={s.get('type')}  "
+                                      f"conditionTypeKey={ec2.get('conditionTypeKey')}  "
+                                      f"endConditionValue={s.get('endConditionValue')}")
+                total_s = _duration_from_segments(details)
+                print(f"    _duration_from_segments → {total_s}s = {round(total_s/60) if total_s else None}мин")
+            except Exception as e:
+                print(f"    get_scheduled_workout_by_id FAILED: {e}")
+
+        workout_id = w.get("workoutId")
+        if workout_id:
+            try:
+                details2 = api.get_workout_by_id(workout_id)
+                print(f"\n  get_workout_by_id({workout_id}):")
+                print(f"    top-level keys: {sorted(details2.keys())[:20]}")
+                total_s2 = _duration_from_segments(details2)
+                print(f"    _duration_from_segments → {total_s2}s = {round(total_s2/60) if total_s2 else None}мин")
+            except Exception as e:
+                print(f"    get_workout_by_id FAILED: {e}")
+
+        dur_min, is_est = _extract_duration_min(api, w)
+        print(f"\n  → _extract_duration_min: {dur_min}мин  estimated={is_est}")
+
+
 if __name__ == "__main__":
+    import sys
     today = date.today().isoformat()
     state = {"date": today}
+
+    if "--debug" in sys.argv:
+        print("=== DEBUG: сырые данные Garmin API ===")
+        _debug_workout_raw(today)
+        sys.exit(0)
 
     print("=== garmin_plan_fn ===")
     result = garmin_plan_fn(state)

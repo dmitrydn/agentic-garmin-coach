@@ -58,6 +58,50 @@ def call_sonnet(system: str, user: str, max_tokens: int = 1000) -> str:
 
 ---
 
+## Verification Protocol
+
+**Обязательно после каждого изменения кода:**
+
+```bash
+uv run pytest tests/ -x --tb=short
+```
+
+### Правила
+
+1. **Задача не считается выполненной, пока хотя бы один тест падает.**
+   Исправить регрессию до отчёта пользователю — не после.
+
+2. **При падении теста**: найти root cause в коде, не в тесте.
+   Удалять или скипать тесты запрещено без явной просьбы пользователя.
+
+3. **При добавлении новой функциональности**: добавить хотя бы один тест
+   в соответствующий слой (Layer I — реализация, Layer B — бизнес-гарантия).
+
+4. **Слои тестов**:
+   - `test_metrics.py` — математика метрик (HRV, ACWR, зоны)
+   - `test_routing.py` — маршрутизация LangGraph графа
+   - `test_hydration_agent.py` — правила гидрации
+   - `test_context_agent.py` — флаги и парсинг событий
+   - `test_garmin_agent.py` — парсинг Garmin API, ATP длительности
+   - `test_data_agent.py` — дельта-синхронизация, SQLite
+   - `test_contracts.py` — схемы выходных данных LLM-агентов
+   - `test_business_scenarios.py` — гарантии тренера атлету
+
+### Что проверяет Layer B (бизнес-гарантии)
+
+| Гарантия | Тест |
+|---|---|
+| `readiness=rest` → no LLM call, type=rest | `test_readiness_rest_bypasses_plan_llm` |
+| illness в events.log → illness flag в контексте | `test_illness_events_produce_illness_flag` |
+| ACWR > 1.5 → acwr_high_risk flag | `test_acwr_high_risk_flag_always_present` |
+| ATP resolves → no ⚠️ в Telegram | `test_garmin_atp_no_duration_warning_in_synthesis_prompt` |
+| duration_estimated=True → ⚠️ инжектится | `test_duration_estimated_true_always_injects_warning` |
+| Coach видит все 7 дней плана | `test_coach_prompt_contains_all_7_plan_days` |
+| events.log → относительные метки времени | `test_past_events_carry_relative_labels` |
+| days_since_quality < 2 → quality_too_recent flag | `test_quality_too_recent_flag_present_when_dsq_is_1` |
+
+---
+
 *Детали API, схема БД, промпты агентов, LangGraph граф → `agents/CLAUDE.md`*
 
 *Май 2026 · обновлять при изменении архитектуры*

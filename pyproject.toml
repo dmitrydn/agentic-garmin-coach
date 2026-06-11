@@ -33,6 +33,7 @@ garmin-coach = "garmin_coach.coach:interactive_session"
 [tool.pytest.ini_options]
 asyncio_mode    = "auto"
 testpaths       = ["tests"]
+pythonpath      = ["agents", "tests"]
 markers         = ["integration: requires live Garmin credentials"]
 
 [tool.hatch.build.targets.wheel]

@@ -60,6 +60,7 @@ Z5: максимальный
 }
 
 Поле duration_estimated: скопируй значение из поля duration_estimated тренировки Garmin Coach на сегодня (true/false). Если тренировки нет — false.
+Поле workout_detail: если есть в данных Garmin Coach, включи в description — это целевой пульс или интервалы ("131bpm" → "держи пульс ~131", "5x3:00@166bpm" → опиши как 5 интервалов по 3 минуты на 166 bpm).
 
 Поле return_protocol: null при обычной тренировке.
 При illness-флаге — объект с чек-листом допуска к нагрузке:

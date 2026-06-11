@@ -1,0 +1,18 @@
+{
+  "type": "easy",
+  "title": "Лёгкий бег Z1 (болезнь — чек-лист активен)",
+  "duration_min": 20,
+  "duration_estimated": false,
+  "zones": ["Z1"],
+  "description": "Только Z1 до выполнения протокола возобновления. Пульс не выше 120.",
+  "cautions": ["пульс не выше 120", "при любых симптомах — полный отдых"],
+  "garmin_plan_used": false,
+  "return_protocol": {
+    "rhr_target": "вернуться к базовой ±1 bpm",
+    "temp_free_hours": 48,
+    "symptom_restriction": "только верхние ДП, грудные — абсолютный запрет",
+    "subjective_min": "≥7/10",
+    "sleep_nights": 2,
+    "race_clearance": null
+  }
+}
