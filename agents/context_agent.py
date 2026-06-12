@@ -222,10 +222,41 @@ def _to_date_str(val) -> str:
     return str(val)
 
 
+def _parse_race_dates_from_log(today: str, path: str = "events.log") -> dict:
+    """Reads future race-b / race-a events from events.log.
+    Returns {'b_race_date': 'YYYY-MM-DD', 'a_race_date': 'YYYY-MM-DD'}
+    for the first occurrence of each tag on or after today.
+    These override yaml dates — events.log is the living source of truth."""
+    today_date = date.fromisoformat(today)
+    result: dict[str, str] = {}
+    try:
+        for line in open(path, encoding="utf-8"):
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(None, 2)
+            if len(parts) < 2:
+                continue
+            try:
+                event_date = date.fromisoformat(parts[0])
+            except ValueError:
+                continue
+            tag = parts[1]
+            if event_date >= today_date:
+                if tag == "race-b" and "b_race_date" not in result:
+                    result["b_race_date"] = parts[0]
+                elif tag == "race-a" and "a_race_date" not in result:
+                    result["a_race_date"] = parts[0]
+    except FileNotFoundError:
+        pass
+    return result
+
+
 def _read_season_plan(today: str) -> dict:
     """
     Читает plans/gauja_90k_2026.md, парсит yaml-блок.
     Вычисляет current_block, days_to_b_race, days_to_a_race автоматически.
+    Даты гонок из events.log перекрывают yaml (events.log — живой источник правды).
     Возвращает пустой dict при любой ошибке (graceful degradation).
     """
     plan_path = Path(__file__).parent.parent / "plans" / "gauja_90k_2026.md"
@@ -254,9 +285,16 @@ def _read_season_plan(today: str) -> dict:
                     current_block = name
                     break
 
-        # Дни до гонок
+        # Дни до гонок: yaml — база, events.log — приоритет
         b_date = date.fromisoformat(_to_date_str(config["b_race"]["date"]))
         a_date = date.fromisoformat(_to_date_str(config["a_race"]["date"]))
+        log_races = _parse_race_dates_from_log(today)
+        if log_races.get("b_race_date"):
+            b_date = date.fromisoformat(log_races["b_race_date"])
+            print(f"[context_agent] b_race date overridden by events.log: {b_date}")
+        if log_races.get("a_race_date"):
+            a_date = date.fromisoformat(log_races["a_race_date"])
+            print(f"[context_agent] a_race date overridden by events.log: {a_date}")
         days_to_b = (b_date - today_date).days
         days_to_a = (a_date - today_date).days
 
@@ -265,10 +303,10 @@ def _read_season_plan(today: str) -> dict:
             "current_block_label":  _BLOCK_LABELS.get(current_block, current_block),
             "days_to_b_race":       days_to_b,
             "days_to_a_race":       days_to_a,
-            "b_race_date":          _to_date_str(config["b_race"]["date"]),
+            "b_race_date":          b_date.isoformat(),
             "b_race_distance_km":   config["b_race"].get("distance_km"),
             "b_race_strategy":      config["b_race"].get("strategy"),
-            "a_race_date":          _to_date_str(config["a_race"]["date"]),
+            "a_race_date":          a_date.isoformat(),
             "a_race_distance_km":   config["a_race"].get("distance_km"),
             "a_race_elevation_m":   config["a_race"].get("elevation_gain_m"),
             "peak_weekly_tss":      config.get("peak_weekly_tss"),

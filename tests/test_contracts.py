@@ -365,3 +365,39 @@ def test_synthesis_final_message_within_telegram_limit(tmp_db):
     assert len(result["final_message"]) <= 4096, (
         f"final_message length {len(result['final_message'])} exceeds Telegram 4096-char limit"
     )
+
+
+def test_synthesis_prompt_includes_tomorrow_workout(tmp_db):
+    """When upcoming_plan has tomorrow's workout, synthesis prompt must include its date and duration."""
+    from datetime import date, timedelta
+    tomorrow = (date.fromisoformat(TODAY) + timedelta(days=1)).isoformat()
+    state = {
+        **_BASE_SYNTHESIS_STATE,
+        "upcoming_plan": [
+            {"date": tomorrow, "type": "long", "description": "Long Run", "duration_min": 153},
+        ],
+    }
+    captured = {}
+    def capture_create(**kwargs):
+        captured["user"] = kwargs["messages"][0]["content"]
+        return make_llm_msg("Хорошо.")
+    with patch("synthesis_agent.client") as mock_client:
+        mock_client.messages.create.side_effect = lambda **kw: capture_create(**kw)
+        synthesis_fn(state)
+
+    assert tomorrow in captured.get("user", ""), "tomorrow date must appear in synthesis prompt"
+    assert "153" in captured["user"], "tomorrow workout duration must appear in synthesis prompt"
+
+
+def test_synthesis_prompt_no_tomorrow_data_when_plan_empty(tmp_db):
+    """When upcoming_plan is empty, synthesis prompt must say 'нет данных' for tomorrow."""
+    captured = {}
+    def capture_create(**kwargs):
+        captured["user"] = kwargs["messages"][0]["content"]
+        return make_llm_msg("Хорошо.")
+    state = {**_BASE_SYNTHESIS_STATE, "upcoming_plan": []}
+    with patch("synthesis_agent.client") as mock_client:
+        mock_client.messages.create.side_effect = lambda **kw: capture_create(**kw)
+        synthesis_fn(state)
+
+    assert "нет данных" in captured.get("user", ""), "prompt must say 'нет данных' when no upcoming workout"

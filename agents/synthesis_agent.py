@@ -11,6 +11,7 @@ synthesis_agent.py — Sonnet 4.6, финальное сообщение в Tele
 import json
 import os
 import sqlite3
+from datetime import date as _date, timedelta
 from pathlib import Path
 
 import anthropic
@@ -38,7 +39,9 @@ SYNTHESIS_SYSTEM = """
 - Конкретно: "бег 50 мин в Z1-Z2, пульс 120-135", не "лёгкая пробежка"
 - Без воды: убери все "отлично", "прекрасно", "молодец" — только факты
 - Если есть аномалии в флагах — объясни кратко и понятно
-- Если завтра гонка или ключевая тренировка — упомяни в конце
+- Если в разделе "Ближайшие сессии" есть тренировка — упомяни её в конце
+- Временны́е метки (завтра, послезавтра) — ТОЛЬКО из раздела "Ближайшие сессии".
+  Никогда не называй одну тренировку двумя разными метками в одном сообщении.
 - Длина: 250-400 слов, не больше
 - Если поле duration_note присутствует в данных тренировки — включи его дословно
   сразу после указания длительности (в скобках или отдельной строкой)
@@ -52,7 +55,7 @@ SYNTHESIS_SYSTEM = """
 def synthesis_fn(state: dict) -> dict:
     """Sonnet 4.6. Строит сообщение и сохраняет analysis_json."""
 
-    rec      = state.get("recommendation") or {}
+    rec       = state.get("recommendation") or {}
     hydration = state.get("hydration_schedule") or []
 
     # Добавляем дисклеймер детерминированно — LLM не должен угадывать источник
@@ -64,8 +67,30 @@ def synthesis_fn(state: dict) -> dict:
             "Проверь план в приложении Garmin."
         )
 
+    # Ближайшие сессии из upcoming_plan — исключаем сегодня, берём +1/+2 дня
+    today_str    = state.get("date", "")
+    upcoming     = state.get("upcoming_plan") or []
+    try:
+        today_date = _date.fromisoformat(today_str)
+        tomorrow_str   = (today_date + timedelta(days=1)).isoformat()
+        day_after_str  = (today_date + timedelta(days=2)).isoformat()
+    except (ValueError, TypeError):
+        tomorrow_str = day_after_str = ""
+    tomorrow_workout  = next((w for w in upcoming if w.get("date") == tomorrow_str), None)
+    day_after_workout = next((w for w in upcoming if w.get("date") == day_after_str), None)
+
+    upcoming_lines = []
+    if tomorrow_workout:
+        upcoming_lines.append(f"- Завтра ({tomorrow_str}): {json.dumps(tomorrow_workout, ensure_ascii=False)}")
+    else:
+        upcoming_lines.append(f"- Завтра ({tomorrow_str}): нет данных")
+    if day_after_workout:
+        upcoming_lines.append(f"- Послезавтра ({day_after_str}): {json.dumps(day_after_workout, ensure_ascii=False)}")
+    else:
+        upcoming_lines.append(f"- Послезавтра ({day_after_str}): нет данных")
+
     user_content = f"""
-Дата: {state.get('date')}
+Дата: {today_str}
 Readiness: {state.get('readiness')} (score {state.get('readiness_score')})
 Reasoning: {state.get('readiness_reasoning')}
 
@@ -86,6 +111,9 @@ Reasoning: {state.get('readiness_reasoning')}
 Garmin real-time:
 - Body Battery: {(state.get('garmin_rt') or {}).get('body_battery', 'н/д')}
 - Training Readiness: {(state.get('garmin_rt') or {}).get('training_readiness', 'н/д')}
+
+Ближайшие сессии (Garmin Plan):
+{chr(10).join(upcoming_lines)}
 
 Сезонный контекст:
 - Текущий блок: {state.get('current_block', 'н/д')} ({state.get('season_plan', {}).get('current_block_label', '')})

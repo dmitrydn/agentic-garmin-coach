@@ -14,7 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from context_agent import _compute_flags, _parse_today_events, _read_log
+from context_agent import _compute_flags, _parse_today_events, _parse_race_dates_from_log, _read_log
 
 
 # ── _compute_flags ────────────────────────────────────────────────────────────
@@ -141,3 +141,37 @@ def test_log_labels_future_event(tmp_path):
 def test_log_missing_file_returns_empty(tmp_path):
     result = _read_log(str(tmp_path / "nonexistent.log"), days=14)
     assert result == ""
+
+
+# ── _parse_race_dates_from_log ────────────────────────────────────────────────
+
+def test_race_dates_from_log_overrides_yaml(tmp_path):
+    """Future race-b and race-a entries in events.log must be extracted correctly."""
+    log = tmp_path / "events.log"
+    log.write_text(
+        "2026-06-20 race-b 59km trail, грунт\n"
+        "2026-08-01 race-a 90km UTMB Gauja\n",
+        encoding="utf-8",
+    )
+    result = _parse_race_dates_from_log("2026-06-12", str(log))
+    assert result["b_race_date"] == "2026-06-20"
+    assert result["a_race_date"] == "2026-08-01"
+
+
+def test_race_dates_past_events_ignored(tmp_path):
+    """Race events before today must not be returned."""
+    log = tmp_path / "events.log"
+    log.write_text(
+        "2026-05-23 race-c 23km тренировочный\n"
+        "2026-08-01 race-a 90km UTMB Gauja\n",
+        encoding="utf-8",
+    )
+    result = _parse_race_dates_from_log("2026-06-12", str(log))
+    assert "b_race_date" not in result
+    assert result["a_race_date"] == "2026-08-01"
+
+
+def test_race_dates_missing_log_returns_empty(tmp_path):
+    """Missing events.log must return empty dict, not raise."""
+    result = _parse_race_dates_from_log("2026-06-12", str(tmp_path / "nonexistent.log"))
+    assert result == {}
