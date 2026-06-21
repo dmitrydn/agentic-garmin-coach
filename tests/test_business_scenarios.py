@@ -14,7 +14,8 @@ Promises tested:
   7. coach sees full 7-day plan (not truncated) — bug from commit 51ebaf7
   8. relative time labels prevent past events appearing as "today"
   9. quality_too_recent flag gates same-day quality session
- 10. Sunday pipeline calls form_agent (weekly report guarantee)
+ 10. B-race ≤ 7d → long run capped at 75 min (taper enforcement)
+ 11. Sunday pipeline calls form_agent (weekly report guarantee)
 """
 
 import json
@@ -265,7 +266,72 @@ def test_quality_not_flagged_after_two_days():
     assert not any("quality_too_recent" in f for f in flags)
 
 
-# ── 10. Sunday → form_agent called ───────────────────────────────────────────
+# ── 10. B-race ≤ 7d → long run capped at 75 min ──────────────────────────────
+
+def test_b_race_7d_caps_long_run():
+    """Guarantee: LLM recommending 153-min long run is capped at 75 min when B-race ≤ 7 days."""
+    llm_long = {
+        "type": "long", "title": "Длинный бег Z2", "duration_min": 153,
+        "duration_estimated": False, "zones": ["Z1", "Z2"],
+        "description": "Длинный выход.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {
+        **_CLEAN_STATE,
+        "days_to_b_race": 7,
+        "season_plan": {**_CLEAN_STATE["season_plan"], "b_race_distance_km": 59},
+    }
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_long))
+        result = plan_agent_fn(state)
+
+    rec = result["recommendation"]
+    assert rec["duration_min"] == 75, (
+        f"Expected 75 min cap with B-race in 7 days, got {rec['duration_min']}"
+    )
+    assert any("B-race" in c for c in rec.get("cautions", [])), (
+        "Expected B-race taper caution note in recommendation"
+    )
+
+
+def test_b_race_8_10d_caps_long_run_at_90():
+    """Guarantee: LLM long run is capped at 90 min when B-race is 8-10 days away."""
+    llm_long = {
+        "type": "long", "title": "Длинный бег Z2", "duration_min": 153,
+        "duration_estimated": False, "zones": ["Z1", "Z2"],
+        "description": "Длинный выход.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {
+        **_CLEAN_STATE,
+        "days_to_b_race": 10,
+        "season_plan": {**_CLEAN_STATE["season_plan"], "b_race_distance_km": 59},
+    }
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_long))
+        result = plan_agent_fn(state)
+
+    assert result["recommendation"]["duration_min"] == 90
+
+
+def test_b_race_cap_does_not_apply_to_easy_run():
+    """Guarantee: B-race proximity cap only applies to type=long, not easy runs."""
+    llm_easy = {
+        "type": "easy", "title": "Лёгкий бег", "duration_min": 60,
+        "duration_estimated": False, "zones": ["Z1", "Z2"],
+        "description": "Лёгкий бег.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {
+        **_CLEAN_STATE,
+        "days_to_b_race": 5,
+        "season_plan": {**_CLEAN_STATE["season_plan"], "b_race_distance_km": 59},
+    }
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_easy))
+        result = plan_agent_fn(state)
+
+    assert result["recommendation"]["duration_min"] == 60
+
+
+# ── 11. Sunday → form_agent called ───────────────────────────────────────────
 
 def test_sunday_triggers_form_agent(tmp_db):
     """Guarantee: weekly running form report is generated every Sunday.
@@ -293,3 +359,51 @@ def test_sunday_triggers_form_agent(tmp_db):
 
     assert len(form_called_with) == 1
     assert form_called_with[0]["date"] == sunday.isoformat()
+
+
+# ── 12. A-race ≤14d caps long run at 90 min (taper enforcement, B-race retired) ─
+
+def test_a_race_14d_caps_long_run_at_90():
+    """Guarantee: LLM recommending a >90min long run is capped at 90 when
+    A-race taper (≤14 days) is active. This is now the only active race cap —
+    the B-race cap (days_to_b_race) stays dormant since B-race is retired."""
+    llm_long = {
+        "type": "long", "title": "Длинный бег Z2", "duration_min": 150,
+        "duration_estimated": False, "zones": ["Z1", "Z2"],
+        "description": "Длинный выход.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {
+        **_CLEAN_STATE,
+        "days_to_a_race": 10,
+        "season_plan": {**_CLEAN_STATE["season_plan"], "a_race_distance_km": 90},
+    }
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_long))
+        result = plan_agent_fn(state)
+
+    rec = result["recommendation"]
+    assert rec["duration_min"] == 90, (
+        f"Expected 90 min A-race taper cap, got {rec['duration_min']}"
+    )
+    assert any("A-race" in c for c in rec.get("cautions", [])), (
+        "Expected A-race taper caution note in recommendation"
+    )
+
+
+def test_a_race_cap_inactive_beyond_14_days():
+    """Guarantee: A-race cap does not fire when more than 14 days out."""
+    llm_long = {
+        "type": "long", "title": "Длинный бег Z2", "duration_min": 150,
+        "duration_estimated": False, "zones": ["Z1", "Z2"],
+        "description": "Длинный выход.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {
+        **_CLEAN_STATE,
+        "days_to_a_race": 41,
+        "season_plan": {**_CLEAN_STATE["season_plan"], "a_race_distance_km": 90},
+    }
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_long))
+        result = plan_agent_fn(state)
+
+    assert result["recommendation"]["duration_min"] == 150

@@ -175,3 +175,19 @@ def test_race_dates_missing_log_returns_empty(tmp_path):
     """Missing events.log must return empty dict, not raise."""
     result = _parse_race_dates_from_log("2026-06-12", str(tmp_path / "nonexistent.log"))
     assert result == {}
+
+
+# ── _read_season_plan: b_race retired (cancelled 2026-06-21) ──────────────────
+
+def test_read_season_plan_without_b_race_key_does_not_crash():
+    """
+    plans/gauja_90k_2026.md v2 has no `b_race` key (retired — see §1 of the
+    plan). _read_season_plan must not KeyError, and must omit b_race_* /
+    days_to_b_race from the result rather than inventing stale values.
+    """
+    from context_agent import _read_season_plan
+    result = _read_season_plan("2026-06-21")
+    assert result  # plan loaded successfully
+    assert "days_to_b_race" not in result
+    assert "b_race_date" not in result
+    assert result["days_to_a_race"] == 41  # 2026-08-01 - 2026-06-21

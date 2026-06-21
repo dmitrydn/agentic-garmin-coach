@@ -62,7 +62,9 @@ ACWR зоны (ATL/CTL, Gabbett 2016):
 - > 1.5   → high_risk → обязательное снижение
 
 ГОНКИ 2026:
-- 23.05 (C, trail 23км), 18.07 (B, 50км), 01.08 (A — главная, UTMB Gauja Trail 90км / 2500м D+)
+- 23.05 (C, trail 23км, пройдена), 20.06 (B, фактически 60км — неконтролируемое
+  усилие, удар головой, см. context_flags/events.log), 01.08 (A — главная,
+  UTMB Gauja Trail 90км / 2500м D+). Второго старта перед A-race не будет.
 
 МЕЗОЦИКЛ (3+1 периодизация):
 Текущая неделя: {mesocycle_week}/4.
@@ -112,7 +114,8 @@ Form=-15 на неделе 1 — сигнал перегрузки.
 - C-гонка (тренировочная): её ценность — объём, симуляция, практика. Всё это
   воспроизводимо тренировочным длинным выходом. Никогда не рекомендовать старт,
   если это создаёт риск для A-гонки или продлевает восстановление от болезни.
-- B-гонка: стартовать при readiness ≥ normal и отсутствии острых флагов.
+- B-гонка прошла 20.06 и больше не в горизонте планирования — второго старта
+  перед A-race не будет, не рекомендовать новых стартов до 01.08.
 - A-гонка (UTMB Gauja 90km / 2500м D+, 01.08): абсолютный приоритет. Любое решение о
   тренировке или C/B-гонке оценивать через призму влияния на A-гонку.
 
@@ -208,13 +211,11 @@ Garmin Performance:
 - Lactate Threshold HR: {state.get('lt_hr', 'н/д')} bpm
 
 Флаги контекста: {state.get('context_flags', [])}
-Garmin Coach план (ближайшие 7 дней): {state.get('upcoming_plan', [])[:7]}
+Персональный план (Koop, ближайшие 7 дней): {state.get('upcoming_plan', [])[:7]}
 
 Сезонный план:
 - Текущий блок: {state.get('current_block', 'н/д')} ({state.get('season_plan', {}).get('current_block_label', '')})
-- Дней до B-race ({state.get('season_plan', {}).get('b_race_distance_km', '?')} km, {state.get('season_plan', {}).get('b_race_date', '?')}): {state.get('days_to_b_race', 'н/д')}
 - Дней до A-race ({state.get('season_plan', {}).get('a_race_distance_km', '?')} km / {state.get('season_plan', {}).get('a_race_elevation_m', '?')} m D+, {state.get('season_plan', {}).get('a_race_date', '?')}): {state.get('days_to_a_race', 'н/д')}
-- B-race стратегия: {state.get('season_plan', {}).get('b_race_strategy', 'н/д')}
 
 События (events.log, последние 14 дней):
 {state.get('events_context') or 'нет событий'}

@@ -60,7 +60,8 @@ def init_db(db_path: str = "coach.db") -> None:
         avg_vertical_osc_mm  REAL,
         avg_vertical_ratio   REAL,
         avg_stride_length_m  REAL,
-        efficiency_factor    REAL
+        efficiency_factor    REAL,
+        garmin_activity_id   TEXT
     );
 
     CREATE TABLE IF NOT EXISTS garmin_cache (
@@ -121,6 +122,7 @@ def init_db(db_path: str = "coach.db") -> None:
         "ALTER TABLE activity_cache ADD COLUMN avg_vertical_ratio REAL",
         "ALTER TABLE activity_cache ADD COLUMN avg_stride_length_m REAL",
         "ALTER TABLE activity_cache ADD COLUMN efficiency_factor REAL",
+        "ALTER TABLE activity_cache ADD COLUMN garmin_activity_id TEXT",
     ]:
         try:
             con.execute(_col_sql)
@@ -205,24 +207,31 @@ def save_activities(records: list[dict], db_path: str = "coach.db") -> None:
         dur  = a.get("elapsed_time") or 0
         pace = (dur / (dist / 1000)) if dist > 0 else None
 
-        # EF: prefer pre-computed field, fall back to watts/hr
-        ef = a.get("efficiency_factor")
+        # EF: prefer intervals.icu's own computed field, fall back to watts/hr.
+        # Real field name is icu_efficiency_factor — "efficiency_factor" (legacy
+        # key checked here) doesn't exist in the API response, so this was
+        # always silently falling through to the watts/hr fallback.
+        ef = a.get("icu_efficiency_factor") or a.get("efficiency_factor")
         if not ef:
             watts = a.get("icu_average_watts") or 0
             hr    = a.get("average_heartrate") or 0
             ef    = round(watts / hr, 4) if hr > 0 and watts > 0 else None
 
-        # ON CONFLICT DO UPDATE — не трогаем rpe (пишет telegram_bot),
-        # adjusted_load (пишет metrics_fn), surface (вручную).
-        # Обновляем только поля из intervals.icu (включая running dynamics).
+        # GCT/vertical oscillation/vertical ratio are NOT available from
+        # intervals.icu's API at all (verified — absent from every field set).
+        # They're backfilled separately from Garmin Connect by
+        # garmin_agent.backfill_running_dynamics_fn via garmin_activity_id.
+        # Deliberately excluded from ON CONFLICT UPDATE below so a routine
+        # intervals.icu resync never wipes out a Garmin-backfilled value.
         con.execute("""
             INSERT INTO activity_cache
                 (id, date, name, distance_m, duration_s, avg_hr,
                  training_load, adjusted_load, avg_pace_s, elevation_gain_m,
                  time_in_z1, time_in_z2, surface, rpe, synced_at,
                  avg_cadence, avg_gct_ms, avg_vertical_osc_mm,
-                 avg_vertical_ratio, avg_stride_length_m, efficiency_factor)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 avg_vertical_ratio, avg_stride_length_m, efficiency_factor,
+                 garmin_activity_id)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 date=excluded.date,
                 name=excluded.name,
@@ -235,11 +244,9 @@ def save_activities(records: list[dict], db_path: str = "coach.db") -> None:
                 time_in_z1=excluded.time_in_z1,
                 time_in_z2=excluded.time_in_z2,
                 avg_cadence=excluded.avg_cadence,
-                avg_gct_ms=excluded.avg_gct_ms,
-                avg_vertical_osc_mm=excluded.avg_vertical_osc_mm,
-                avg_vertical_ratio=excluded.avg_vertical_ratio,
                 avg_stride_length_m=excluded.avg_stride_length_m,
                 efficiency_factor=excluded.efficiency_factor,
+                garmin_activity_id=excluded.garmin_activity_id,
                 synced_at=excluded.synced_at
         """,
             (
@@ -259,11 +266,12 @@ def save_activities(records: list[dict], db_path: str = "coach.db") -> None:
                 None,                        # rpe — из Telegram
                 now,
                 a.get("average_cadence"),
-                a.get("avg_ground_contact_time"),
-                a.get("avg_vertical_oscillation"),
-                a.get("avg_vertical_ratio"),
-                a.get("avg_stride_length"),
+                None,                        # avg_gct_ms — Garmin backfill only
+                None,                        # avg_vertical_osc_mm — Garmin backfill only
+                None,                        # avg_vertical_ratio — Garmin backfill only
+                a.get("average_stride"),     # реальное поле intervals.icu (было avg_stride_length — не существует)
                 ef,
+                a.get("external_id"),        # Garmin activity id, для backfill running dynamics
             )
         )
     con.commit()

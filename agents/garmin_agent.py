@@ -417,6 +417,96 @@ def garmin_rt_fn(state: dict) -> dict:
         return {"garmin_rt": {}}
 
 
+# ── Running Dynamics backfill (GCT, vertical oscillation, vertical ratio) ─────
+#
+# intervals.icu не отдаёт directGroundContactTime/directVerticalOscillation/
+# directVerticalRatio ни под каким именем поля (проверено на реальных
+# активностях — отсутствуют у всех). Эти данные реально есть в Garmin Connect
+# (HRM-Pro), но только как time-series в get_activity_details(), не как
+# готовое summary-поле. Каденс и stride length intervals.icu отдаёт нормально
+# (average_cadence, average_stride) — их синкает data_agent.py, здесь не трогаем.
+
+def fetch_running_dynamics(api: "garminconnect.Garmin", garmin_activity_id: str) -> dict | None:
+    """
+    Усредняет GCT/vertical oscillation/vertical ratio по time-series сэмплам
+    активности. metricsIndex НЕ стабилен между активностями — каждый раз
+    строим маппинг key→index из metricDescriptors, не хардкодим позиции.
+    0 и None в сэмплах отбрасываются (сенсор не локализовался/пауза).
+    """
+    try:
+        detail = api.get_activity_details(garmin_activity_id)
+    except Exception as e:
+        print(f"[running_dynamics] get_activity_details({garmin_activity_id}) failed: {e}")
+        return None
+
+    idx  = {d["key"]: d["metricsIndex"] for d in (detail.get("metricDescriptors") or [])}
+    rows = detail.get("activityDetailMetrics") or []
+    if not rows:
+        return None
+
+    def _avg(key: str) -> float | None:
+        i = idx.get(key)
+        if i is None:
+            return None
+        vals = [r["metrics"][i] for r in rows if r["metrics"][i] not in (None, 0)]
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    gct_ms = _avg("directGroundContactTime")        # ms — уже в нужной единице
+    vo_cm  = _avg("directVerticalOscillation")      # cm → mm для БД
+    vr_pct = _avg("directVerticalRatio")             # dimensionless (%) — как есть
+
+    if gct_ms is None and vo_cm is None and vr_pct is None:
+        return None
+
+    return {
+        "avg_gct_ms":          gct_ms,
+        "avg_vertical_osc_mm": round(vo_cm * 10, 1) if vo_cm is not None else None,
+        "avg_vertical_ratio":  vr_pct,
+    }
+
+
+def backfill_running_dynamics_fn(state: dict) -> dict:
+    """
+    Python, ноль LLM-токенов. Заполняет avg_gct_ms/avg_vertical_osc_mm/
+    avg_vertical_ratio там, где они ещё NULL — без сети, если нечего бэкфилить.
+    Лимит 15 тренировок за прогон (защита от долгого первого запуска).
+    """
+    con = sqlite3.connect("coach.db")
+    rows = con.execute("""
+        SELECT id, garmin_activity_id FROM activity_cache
+        WHERE avg_gct_ms IS NULL AND garmin_activity_id IS NOT NULL
+        ORDER BY date DESC LIMIT 15
+    """).fetchall()
+
+    if not rows:
+        con.close()
+        return {}
+
+    try:
+        api = _get_api()
+    except Exception as e:
+        print(f"[running_dynamics] недоступен: {e}")
+        con.close()
+        return {}
+
+    updated = 0
+    for activity_id, garmin_id in rows:
+        rd = fetch_running_dynamics(api, garmin_id)
+        if not rd:
+            continue
+        con.execute("""
+            UPDATE activity_cache
+            SET avg_gct_ms=?, avg_vertical_osc_mm=?, avg_vertical_ratio=?
+            WHERE id=?
+        """, (rd["avg_gct_ms"], rd["avg_vertical_osc_mm"], rd["avg_vertical_ratio"], activity_id))
+        updated += 1
+
+    con.commit()
+    con.close()
+    print(f"[running_dynamics] backfilled {updated}/{len(rows)} тренировок")
+    return {}
+
+
 # ── Performance cache helpers ─────────────────────────────────────────────────
 
 def _get_performance_cache(today_str: str) -> dict | None:

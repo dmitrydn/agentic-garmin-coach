@@ -63,8 +63,7 @@ def synthesis_fn(state: dict) -> dict:
     if rec.get("duration_estimated"):
         rec_for_prompt["duration_note"] = (
             f"⚠️ {rec.get('duration_min')} мин — оценка агента, "
-            "Garmin Coach не вернул реальную длительность. "
-            "Проверь план в приложении Garmin."
+            "точная длительность не зафиксирована. Скорректируй по ощущению."
         )
 
     # Ближайшие сессии из upcoming_plan — исключаем сегодня, берём +1/+2 дня
@@ -112,12 +111,11 @@ Garmin real-time:
 - Body Battery: {(state.get('garmin_rt') or {}).get('body_battery', 'н/д')}
 - Training Readiness: {(state.get('garmin_rt') or {}).get('training_readiness', 'н/д')}
 
-Ближайшие сессии (Garmin Plan):
+Ближайшие сессии (план):
 {chr(10).join(upcoming_lines)}
 
 Сезонный контекст:
 - Текущий блок: {state.get('current_block', 'н/д')} ({state.get('season_plan', {}).get('current_block_label', '')})
-- До B-race ({state.get('season_plan', {}).get('b_race_date', '?')}): {state.get('days_to_b_race', 'н/д')} дн.
 - До A-race ({state.get('season_plan', {}).get('a_race_date', '?')}): {state.get('days_to_a_race', 'н/д')} дн.
 """.strip()
 

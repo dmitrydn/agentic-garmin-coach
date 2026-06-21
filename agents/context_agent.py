@@ -26,6 +26,10 @@ from pathlib import Path
 
 import yaml
 
+from metrics import weekly_volume_status
+
+PLAN_PATH = Path(__file__).parent.parent / "plans" / "gauja_90k_2026.md"
+
 # Теги, которые объясняют нагрузку/усталость → флаги помечаются known_event
 _LOAD_TAGS    = {"hard-run", "camp-start", "camp-end", "no-sleep", "travel", "heat", "rest-day", "strength"}
 _RACE_TAGS    = {"race-a", "race-b", "race-c"}
@@ -74,12 +78,18 @@ def context_agent_fn(state: dict) -> dict:
 
     season = _read_season_plan(today)
 
+    # Контроль объёма: фактический недельный объём (metrics_fn) vs target текущего блока
+    target = (season.get("weekly_targets") or {}).get(season.get("current_block"), {})
+    vol = weekly_volume_status(state.get("week_total_minutes"), target.get("target_minutes"))
+    if vol["volume_status"] in ("over", "under"):
+        resolved_flags.append(f"volume_{vol['volume_status']}:{vol['volume_pct']}%")
+
     feedback_source = "poll+events" if poll else "events_only"
     print(f"[context_agent] feedback_source={feedback_source} poll={poll}")
     print(f"[context_agent] flags: {resolved_flags}")
     print(f"[context_agent] block={season.get('current_block')} "
-          f"B-race={season.get('days_to_b_race')}д "
-          f"A-race={season.get('days_to_a_race')}д")
+          f"A-race={season.get('days_to_a_race')}д "
+          f"volume={vol['volume_status']}({vol['volume_pct']}%)")
     return {
         "context_flags":        resolved_flags,
         "athlete_memory":       athlete_memory,
@@ -204,18 +214,16 @@ def _read_file(path: str) -> str:
 
 
 _BLOCK_LABELS = {
-    "recovery":    "Восстановление",
-    "re_entry":    "Re-entry / Аэробный ребилд",
-    "foundation":  "Foundation (LT/VO2)",
-    "specific":    "Specific (вертикаль + объём)",
-    "pre_b_taper": "Pre-B мини-тейпер",
-    "b_race":      "B-RACE день",
-    "a_race_prep": "Recovery + A-race prep",
-    "a_race":      "A-RACE день",
+    "recovery": "Восстановление после гонки 20.06",
+    "build_a":  "Build A (аэробный ребилд)",
+    "build_b":  "Build B (пик специфики, вертикаль)",
+    "build_c":  "Build C (deload)",
+    "taper":    "Тейпер",
+    "a_race":   "A-RACE день",
 }
 
 
-def _to_date_str(val) -> str:
+def to_date_str(val) -> str:
     """Конвертирует datetime.date или строку в ISO-формат."""
     if hasattr(val, "isoformat"):
         return val.isoformat()
@@ -252,66 +260,82 @@ def _parse_race_dates_from_log(today: str, path: str = "events.log") -> dict:
     return result
 
 
-def _read_season_plan(today: str) -> dict:
+def load_plan_config(plan_path: Path = PLAN_PATH) -> dict:
     """
-    Читает plans/gauja_90k_2026.md, парсит yaml-блок.
-    Вычисляет current_block, days_to_b_race, days_to_a_race автоматически.
-    Даты гонок из events.log перекрывают yaml (events.log — живой источник правды).
-    Возвращает пустой dict при любой ошибке (graceful degradation).
+    Парсит yaml-блок из plans/gauja_90k_2026.md (общий загрузчик —
+    используется и context_agent (season_plan), и koop_plan_agent (календарь)).
+    Возвращает {} при любой ошибке (graceful degradation).
     """
-    plan_path = Path(__file__).parent.parent / "plans" / "gauja_90k_2026.md"
     try:
         content = plan_path.read_text(encoding="utf-8")
         match = re.search(r"```yaml\n(.*?)```", content, re.DOTALL)
         if not match:
             print("[context_agent] season plan: yaml-блок не найден")
             return {}
+        return yaml.safe_load(match.group(1)) or {}
+    except Exception as e:
+        print(f"[context_agent] season plan parse error: {e}")
+        return {}
 
-        config = yaml.safe_load(match.group(1))
-        today_date = date.fromisoformat(today)
 
-        # Определяем текущий блок по датам
-        schedule = config.get("block_schedule", {})
-        current_block = "unknown"
-        for name, info in schedule.items():
-            if "date" in info:
-                if _to_date_str(info["date"]) == today:
-                    current_block = name
-                    break
-            elif "start" in info and "end" in info:
-                start = date.fromisoformat(_to_date_str(info["start"]))
-                end   = date.fromisoformat(_to_date_str(info["end"]))
-                if start <= today_date <= end:
-                    current_block = name
-                    break
+def block_for_date(config: dict, today_date: date) -> str:
+    schedule = config.get("block_schedule", {})
+    for name, info in schedule.items():
+        if "date" in info:
+            if to_date_str(info["date"]) == today_date.isoformat():
+                return name
+        elif "start" in info and "end" in info:
+            start = date.fromisoformat(to_date_str(info["start"]))
+            end   = date.fromisoformat(to_date_str(info["end"]))
+            if start <= today_date <= end:
+                return name
+    return "unknown"
 
-        # Дни до гонок: yaml — база, events.log — приоритет
-        b_date = date.fromisoformat(_to_date_str(config["b_race"]["date"]))
-        a_date = date.fromisoformat(_to_date_str(config["a_race"]["date"]))
-        log_races = _parse_race_dates_from_log(today)
-        if log_races.get("b_race_date"):
-            b_date = date.fromisoformat(log_races["b_race_date"])
-            print(f"[context_agent] b_race date overridden by events.log: {b_date}")
+
+def _read_season_plan(today: str) -> dict:
+    """
+    Читает plans/gauja_90k_2026.md, вычисляет current_block, days_to_a_race
+    (и days_to_b_race — только если в плане есть блок b_race; начиная с
+    2026-06-21 B-race отменена, ключ отсутствует — это штатный случай, не ошибка).
+    Дата A-race из events.log перекрывает yaml (events.log — живой источник правды).
+    Возвращает пустой dict при любой ошибке (graceful degradation).
+    """
+    config = load_plan_config()
+    if not config:
+        return {}
+    try:
+        today_date    = date.fromisoformat(today)
+        current_block = block_for_date(config, today_date)
+        log_races     = _parse_race_dates_from_log(today)
+
+        a_date = date.fromisoformat(to_date_str(config["a_race"]["date"]))
         if log_races.get("a_race_date"):
             a_date = date.fromisoformat(log_races["a_race_date"])
             print(f"[context_agent] a_race date overridden by events.log: {a_date}")
-        days_to_b = (b_date - today_date).days
-        days_to_a = (a_date - today_date).days
 
-        return {
+        result = {
             "current_block":        current_block,
             "current_block_label":  _BLOCK_LABELS.get(current_block, current_block),
-            "days_to_b_race":       days_to_b,
-            "days_to_a_race":       days_to_a,
-            "b_race_date":          b_date.isoformat(),
-            "b_race_distance_km":   config["b_race"].get("distance_km"),
-            "b_race_strategy":      config["b_race"].get("strategy"),
+            "days_to_a_race":       (a_date - today_date).days,
             "a_race_date":          a_date.isoformat(),
             "a_race_distance_km":   config["a_race"].get("distance_km"),
             "a_race_elevation_m":   config["a_race"].get("elevation_gain_m"),
-            "peak_weekly_tss":      config.get("peak_weekly_tss"),
-            "taper_start":          _to_date_str(config["taper_start_final"]) if config.get("taper_start_final") else None,
+            "weekly_targets":       config.get("weekly_targets", {}),
+            "taper_start":          to_date_str(config["taper_start_final"]) if config.get("taper_start_final") else None,
         }
+
+        b_race = config.get("b_race")
+        if b_race:
+            b_date = date.fromisoformat(to_date_str(b_race["date"]))
+            if log_races.get("b_race_date"):
+                b_date = date.fromisoformat(log_races["b_race_date"])
+                print(f"[context_agent] b_race date overridden by events.log: {b_date}")
+            result["days_to_b_race"]     = (b_date - today_date).days
+            result["b_race_date"]        = b_date.isoformat()
+            result["b_race_distance_km"] = b_race.get("distance_km")
+            result["b_race_strategy"]    = b_race.get("strategy")
+
+        return result
     except Exception as e:
         print(f"[context_agent] season plan error: {e}")
         return {}

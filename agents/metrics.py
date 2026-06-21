@@ -181,6 +181,29 @@ def weekly_zone_ratio(week_activities: list[dict]) -> dict:
     }
 
 
+# ── Контроль объёма недели против koop-плана ──────────────────────────────────
+
+def weekly_volume_status(actual_minutes: float | None, target_minutes: float | None,
+                          tolerance: float = 0.15) -> dict:
+    """
+    Сравнивает фактический недельный объём (мин, из activity_cache) с целевым
+    объёмом текущего блока (weekly_targets в plans/gauja_90k_2026.md).
+    Допуск ±15% — за пределами считается отклонением, требующим коррекции
+    объёма в plan_agent (context_flags: volume_over / volume_under).
+    """
+    if not target_minutes or actual_minutes is None:
+        return {"volume_status": "unknown", "volume_pct": None}
+
+    pct = (actual_minutes - target_minutes) / target_minutes
+    if pct > tolerance:
+        status = "over"
+    elif pct < -tolerance:
+        status = "under"
+    else:
+        status = "on_track"
+    return {"volume_status": status, "volume_pct": round(pct * 100, 1)}
+
+
 # ── Дней с последней качественной сессии ─────────────────────────────────────
 
 def days_since_last_quality(activities: list[dict]) -> int:
@@ -326,6 +349,7 @@ def metrics_fn(state: dict) -> dict:
         "sleep_score":        today_w.get("sleep_score"),
         "z1z2_ratio_week":    zone_data.get("z1z2_ratio"),
         "z1z2_compliant":     zone_data.get("z1z2_compliant"),
+        "week_total_minutes": zone_data.get("total_minutes"),
         "days_since_quality": dsq,
         "mesocycle_week":     meso_week,
         "adjusted_loads":     adj_loads,

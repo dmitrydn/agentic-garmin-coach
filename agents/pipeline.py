@@ -2,10 +2,18 @@
 pipeline.py — LangGraph граф, точка входа.
 
 Граф:
-  data → metrics → garmin_plan → garmin_performance → context → coach
-                                  coach ──┬── [score ≤ 5] → garmin_rt → plan
-                                          └── [score > 5] ──────────────→ plan
-                                                            plan → hydration → synthesis → telegram → END
+  data → running_dynamics → metrics → koop_plan → garmin_performance → context → coach
+                                                                        coach ──┬── [score ≤ 5] → garmin_rt → plan
+                                                                                └── [score > 5] ──────────────→ plan
+                                                                                                  plan → hydration → synthesis → telegram → END
+
+running_dynamics — бэкфил GCT/vertical oscillation/vertical ratio из Garmin
+Connect (intervals.icu их не отдаёт). Без сети, если в activity_cache нет
+строк с avg_gct_ms IS NULL.
+
+koop_plan — персональный план (Jason Koop), заменяет адаптивный Garmin Coach
+план как основу upcoming_plan. garmin_rt/garmin_performance остаются —
+readiness-сигналы (Body Battery, Training Readiness, VO2max, LT, сон).
 
 По воскресеньям вечером: + memory_agent (перезапись ATHLETE_MEMORY.md).
 
@@ -36,9 +44,10 @@ load_dotenv()
 from coach_agent import coach_agent_fn
 from context_agent import context_agent_fn
 from data_agent import data_agent_fn, init_db
-from garmin_agent import garmin_plan_fn, garmin_performance_fn, garmin_rt_fn
+from garmin_agent import backfill_running_dynamics_fn, garmin_performance_fn, garmin_rt_fn
 from hydration_agent import hydration_fn
 from form_agent import form_agent_fn
+from koop_plan_agent import koop_plan_fn
 from memory_agent import memory_agent_fn
 from metrics import metrics_fn, strength_load_today
 from plan_agent import plan_agent_fn
@@ -72,9 +81,12 @@ class CoachState(TypedDict, total=False):
     z1z2_compliant:     bool
     mesocycle_week:     int
     strength_load_today: float
+    week_total_minutes: float
 
-    # garmin_agent — plan
+    # koop_plan_agent — персональный план (заменяет Garmin Coach как основу дня)
     upcoming_plan: list[dict]
+
+    # garmin_agent — readiness-сигналы (Body Battery, Training Readiness, Status)
     garmin_rt:     dict
     training_status_label: str
 
@@ -202,6 +214,14 @@ def node_data(state: CoachState) -> CoachState:
     return asyncio.run(data_agent_fn(state))
 
 
+def node_running_dynamics(state: CoachState) -> CoachState:
+    """Бэкфил GCT/vertical oscillation/vertical ratio из Garmin Connect
+    (intervals.icu их не отдаёт). Ничего не пишет в state — только в БД."""
+    print("[pipeline] ── running_dynamics backfill ──")
+    backfill_running_dynamics_fn(state)
+    return state
+
+
 def node_metrics(state: CoachState) -> CoachState:
     print("[pipeline] ── metrics ──")
     result = metrics_fn(state)
@@ -213,9 +233,9 @@ def node_metrics(state: CoachState) -> CoachState:
     return result
 
 
-def node_garmin_plan(state: CoachState) -> CoachState:
-    print("[pipeline] ── garmin_plan ──")
-    return garmin_plan_fn(state)
+def node_koop_plan(state: CoachState) -> CoachState:
+    print("[pipeline] ── koop_plan ──")
+    return koop_plan_fn(state)
 
 
 def node_garmin_performance(state: CoachState) -> CoachState:
@@ -295,8 +315,9 @@ def build_graph() -> StateGraph:
     g = StateGraph(CoachState)
 
     g.add_node("data",               node_data)
+    g.add_node("running_dynamics",   node_running_dynamics)
     g.add_node("metrics",            node_metrics)
-    g.add_node("garmin_plan",        node_garmin_plan)
+    g.add_node("koop_plan",          node_koop_plan)
     g.add_node("garmin_performance", node_garmin_performance)
     g.add_node("context",            node_context)
     g.add_node("coach",       node_coach)
@@ -308,9 +329,10 @@ def build_graph() -> StateGraph:
 
     g.set_entry_point("data")
 
-    g.add_edge("data",               "metrics")
-    g.add_edge("metrics",            "garmin_plan")
-    g.add_edge("garmin_plan",        "garmin_performance")
+    g.add_edge("data",               "running_dynamics")
+    g.add_edge("running_dynamics",   "metrics")
+    g.add_edge("metrics",            "koop_plan")
+    g.add_edge("koop_plan",          "garmin_performance")
     g.add_edge("garmin_performance", "context")
     g.add_edge("context",            "coach")
 

@@ -26,18 +26,26 @@ PLAN_SYSTEM = """
 Методология: 80/20. Покрытие: Sūniši (~100м/10км). A-гонка: UTMB Gauja Trail 90км / 2500м D+ (01.08.2026).
 
 ПРИНЦИПЫ РЕКОМЕНДАЦИИ:
-1. Приоритет Garmin Coach — если upcoming_plan содержит тренировку на сегодня,
-   адаптируй её под текущий readiness, не заменяй полностью
+1. Приоритет — персональный план (Jason Koop, в upcoming_plan): если на сегодня
+   есть запись, адаптируй её под текущий readiness, не заменяй полностью.
+   Garmin Coach больше не используется как основа — Garmin даёт только
+   readiness-сигналы (Body Battery, Training Readiness, VO2max, LT, сон).
 2. При readiness="low" → снизить интенсивность, не объём (или оба если нужно)
 3. При readiness="high" → можно добавить 10-15% к плановой интенсивности
 4. Силовые не совмещать с качеством в один день
-5. Взвешивание по ценности гонок: за 7 дней до C-гонки → tapering,
-   за 14 до A-гонки → полный taper. C-гонка НЕ стоит риска для A-гонки —
-   её ценность воспроизводима тренировочным длинным выходом.
+5. Взвешивание по ценности гонок:
+   - за 7 дней до C-гонки → tapering (длинный ≤ 60 мин)
+   - B-гонка прошла 20.06 и больше не в горизонте планирования — не учитывать
+   - за 14 дней до A-гонки → полный taper (длинный ≤ 90 мин, объём -40%).
+     Атлет 58 лет: полное восстановление от длинного выхода занимает 7-10 дней.
+   C-гонка НЕ стоит риска для A-гонки — её ценность воспроизводима тренировочным длинным выходом.
 6. При illness-флаге в context_flags — не рекомендовать нагрузку выше Z1
    до выполнения чек-листа возобновления. В поле description включить
    конкретные физиологические маркеры, при которых атлет может вернуться
    к нагрузке (RHR, температура, субъективное состояние, симптомы).
+7. При флаге volume_over в context_flags → снизить объём сегодня (короче длительность,
+   не интенсивность). При volume_under и нормальном/высоком readiness — держать
+   план без искусственного урезания.
 
 ЗОНЫ (Garmin / 5-zone):
 Z1: очень лёгко, разговорный темп
@@ -59,8 +67,9 @@ Z5: максимальный
   "return_protocol": null
 }
 
-Поле duration_estimated: скопируй значение из поля duration_estimated тренировки Garmin Coach на сегодня (true/false). Если тренировки нет — false.
-Поле workout_detail: если есть в данных Garmin Coach, включи в description — это целевой пульс или интервалы ("131bpm" → "держи пульс ~131", "5x3:00@166bpm" → опиши как 5 интервалов по 3 минуты на 166 bpm).
+Поле garmin_plan_used: true, если сегодняшняя запись из персонального плана (upcoming_plan) была использована как основа рекомендации; false, если плана на сегодня нет и рекомендация построена с нуля (имя поля историческое, теперь относится к персональному Koop-плану, а не к Garmin).
+Поле duration_estimated: скопируй значение из поля duration_estimated записи плана на сегодня (true/false). Если записи нет — false.
+Поле terrain/workout_detail: если есть в данных плана (terrain, описание), включи их в description — конкретику рельефа (Сигулда/Sūniši/зал) и целевые интервалы.
 
 Поле return_protocol: null при обычной тренировке.
 При illness-флаге — объект с чек-листом допуска к нагрузке:
@@ -107,8 +116,8 @@ def plan_agent_fn(state: dict) -> dict:
 Readiness: {state.get('readiness')} (score: {state.get('readiness_score')})
 Reasoning тренера: {state.get('readiness_reasoning')}
 
-Garmin Coach на сегодня: {json.dumps(todays_workout, ensure_ascii=False) if todays_workout else 'нет данных'}
-Garmin Plan на неделю: {json.dumps((state.get('upcoming_plan') or [])[:7], ensure_ascii=False)}
+Персональный план (Koop) на сегодня: {json.dumps(todays_workout, ensure_ascii=False) if todays_workout else 'нет данных'}
+Персональный план на неделю: {json.dumps((state.get('upcoming_plan') or [])[:7], ensure_ascii=False)}
 
 Текущие метрики:
 - ACWR: {state.get('acwr')} ({state.get('acwr_zone')})
@@ -131,9 +140,7 @@ Garmin real-time (если доступен):
 
 Сезонный план:
 - Текущий блок: {state.get('current_block', 'н/д')} ({state.get('season_plan', {}).get('current_block_label', '')})
-- Дней до B-race ({state.get('season_plan', {}).get('b_race_distance_km', '?')} km, {state.get('season_plan', {}).get('b_race_date', '?')}): {state.get('days_to_b_race', 'н/д')}
 - Дней до A-race ({state.get('season_plan', {}).get('a_race_distance_km', '?')} km / {state.get('season_plan', {}).get('a_race_elevation_m', '?')} m D+, {state.get('season_plan', {}).get('a_race_date', '?')}): {state.get('days_to_a_race', 'н/д')}
-- B-race стратегия: {state.get('season_plan', {}).get('b_race_strategy', 'н/д')}
 
 События (events.log, последние 14 дней):
 {state.get('events_context') or 'нет событий'}
@@ -166,6 +173,46 @@ Garmin real-time (если доступен):
             "cautions":     ["пульс не выше 140"],
             "garmin_plan_used": False,
         }
+
+    # Hard cap: B-race within 10 days → long run duration is capped regardless of LLM output.
+    # A 58-year-old needs 7-10 days to recover from a long run; Garmin's plan doesn't know
+    # about race proximity, so we enforce it deterministically.
+    days_to_b = state.get("days_to_b_race")
+    b_km = (state.get("season_plan") or {}).get("b_race_distance_km") or 0
+    if (
+        days_to_b is not None
+        and days_to_b <= 10
+        and b_km >= 40
+        and recommendation.get("type") == "long"
+    ):
+        cap = 75 if days_to_b <= 7 else 90
+        original = recommendation.get("duration_min", 0)
+        if original > cap:
+            recommendation["duration_min"] = cap
+            recommendation.setdefault("cautions", []).append(
+                f"⚠️ B-race через {days_to_b} д ({b_km} км) — длинный выход ограничен {cap} мин"
+            )
+            print(f"[plan_agent] B-race taper cap applied: {original}→{cap} мин")
+
+    # Hard cap: A-race taper within 14 days → long run duration capped at 90 min
+    # regardless of LLM output. Mirrors the B-race cap above — B-race is retired
+    # (days_to_b_race is None going forward), this is now the only active race cap.
+    days_to_a = state.get("days_to_a_race")
+    a_km = (state.get("season_plan") or {}).get("a_race_distance_km") or 0
+    if (
+        days_to_a is not None
+        and days_to_a <= 14
+        and a_km >= 40
+        and recommendation.get("type") == "long"
+    ):
+        cap = 90
+        original = recommendation.get("duration_min", 0)
+        if original > cap:
+            recommendation["duration_min"] = cap
+            recommendation.setdefault("cautions", []).append(
+                f"⚠️ A-race через {days_to_a} д ({a_km} км) — полный тейпер, длинный выход ограничен {cap} мин"
+            )
+            print(f"[plan_agent] A-race taper cap applied: {original}→{cap} мин")
 
     print(f"[plan_agent] тип={recommendation.get('type')} длительность={recommendation.get('duration_min')}мин")
     return {"recommendation": recommendation}

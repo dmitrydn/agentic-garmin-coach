@@ -56,8 +56,9 @@ def _invoke_with_mocked_nodes(coach_score: float) -> list[bool]:
         return {**s, "final_message": "OK"}
 
     with patch("pipeline.node_data", _PASS), \
+         patch("pipeline.node_running_dynamics", _PASS), \
          patch("pipeline.node_metrics", _PASS), \
-         patch("pipeline.node_garmin_plan", _PASS), \
+         patch("pipeline.node_koop_plan", _PASS), \
          patch("pipeline.node_garmin_performance", _PASS), \
          patch("pipeline.node_context", _PASS), \
          patch("pipeline.node_coach", mock_coach), \

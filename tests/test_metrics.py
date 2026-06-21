@@ -14,6 +14,7 @@ from metrics import (
     mesocycle_week,
     rhr_trend_analysis,
     strength_load_today,
+    weekly_volume_status,
     weekly_zone_ratio,
 )
 
@@ -299,3 +300,36 @@ def test_metrics_fn_integration_reads_db_and_returns_all_keys(tmp_db):
     assert result["mesocycle_week"] == 1   # mesocycle_start = today → week 1
     assert isinstance(result["adjusted_loads"], list)
     assert result["strength_load_today"] == 0.0  # no strength_log row
+
+
+# ── weekly_volume_status (koop-plan volume control) ───────────────────────────
+
+def test_volume_status_on_track_within_tolerance():
+    # target 260, actual 280 → +7.7%, within ±15%
+    result = weekly_volume_status(280, 260)
+    assert result["volume_status"] == "on_track"
+
+
+def test_volume_status_over_above_tolerance():
+    # target 260, actual 320 → +23%, above +15%
+    result = weekly_volume_status(320, 260)
+    assert result["volume_status"] == "over"
+    assert result["volume_pct"] > 15
+
+
+def test_volume_status_under_below_tolerance():
+    # target 260, actual 180 → -30.8%, below -15%
+    result = weekly_volume_status(180, 260)
+    assert result["volume_status"] == "under"
+    assert result["volume_pct"] < -15
+
+
+def test_volume_status_unknown_when_no_target():
+    result = weekly_volume_status(200, None)
+    assert result["volume_status"] == "unknown"
+    assert result["volume_pct"] is None
+
+
+def test_volume_status_unknown_when_actual_missing():
+    result = weekly_volume_status(None, 260)
+    assert result["volume_status"] == "unknown"
