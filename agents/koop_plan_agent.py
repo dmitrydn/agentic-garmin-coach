@@ -17,12 +17,12 @@ readiness-сигналы (Body Battery, Training Readiness, VO2max, LT, сон) 
 
 from datetime import date, timedelta
 
-from context_agent import block_for_date, load_plan_config, to_date_str
+from context_agent import block_for_date, load_plan_config
 
 _WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 
 
-def _entry_for_date(config: dict, d: date) -> dict | None:
+def entry_for_date(config: dict, d: date) -> dict | None:
     """Возвращает прескрипцию дня d из koop-календаря или None вне горизонта плана."""
     date_str = d.isoformat()
 
@@ -57,7 +57,7 @@ def koop_plan_fn(state: dict) -> dict:
     plan = []
     for i in range(7):
         d     = today + timedelta(days=i)
-        entry = _entry_for_date(config, d)
+        entry = entry_for_date(config, d)
         if not entry:
             continue
         plan.append({

@@ -12,6 +12,7 @@
 | `data_agent`      | Python-функция  | —                   | fetch → parse → SQLite             |
 | `metrics`         | Python-модуль   | —                   | HRV rolling, ACWR, RHR, 80/20, объём |
 | `koop_plan_agent` | Python-функция  | —                   | персональный план (Jason Koop) — основа upcoming_plan |
+| `plan_html_agent` | Python-функция  | —                   | рендерит plans/gauja_90k_2026.md → .html на каждый прогон |
 | `garmin_agent`    | Python-функция  | —                   | readiness-сигналы: cache check → API → parse. `garmin_plan_fn` (адаптивный план) больше не вызывается из pipeline — заменён `koop_plan_agent` |
 | `context_agent`   | Python-функция  | —                   | чтение файлов, флаги, контроль объёма |
 | `hydration_agent` | Python-функция  | —                   | rule-based расписание              |
@@ -65,13 +66,17 @@ class CoachState(TypedDict):
 ```
 
 ```
-data → metrics → koop_plan → garmin_performance → context → coach ──┬── [score ≤ 5] → garmin_rt → plan
-                                                                      └── [score > 5] ──────────────→ plan
-                                                                                        plan → hydration → synthesis → END
+data → metrics → koop_plan → plan_html → garmin_performance → context → coach ──┬── [score ≤ 5] → garmin_rt → plan
+                                                                                  └── [score > 5] ──────────────→ plan
+                                                                                                    plan → hydration → synthesis → END
 ```
 
 `koop_plan`: персональный план (Jason Koop), читает `plans/gauja_90k_2026.md`
 день-в-день, заполняет `upcoming_plan`. Заменил `garmin_plan` в графе.
+
+`plan_html`: перегенерирует `plans/gauja_90k_2026.html` на каждый прогон —
+ничего не пишет в `CoachState`. Подхватывает любую правку плана (травма,
+восстановление, отмена гонки) без отдельного шага синхронизации.
 
 `route_garmin_rt`: Garmin real-time только при пограничном `readiness_score ≤ 5.0`.
 

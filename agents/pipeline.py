@@ -2,10 +2,10 @@
 pipeline.py — LangGraph граф, точка входа.
 
 Граф:
-  data → running_dynamics → metrics → koop_plan → garmin_performance → context → coach
-                                                                        coach ──┬── [score ≤ 5] → garmin_rt → plan
-                                                                                └── [score > 5] ──────────────→ plan
-                                                                                                  plan → hydration → synthesis → telegram → END
+  data → running_dynamics → metrics → koop_plan → plan_html → garmin_performance → context → coach
+                                                                                    coach ──┬── [score ≤ 5] → garmin_rt → plan
+                                                                                            └── [score > 5] ──────────────→ plan
+                                                                                                              plan → hydration → synthesis → telegram → END
 
 running_dynamics — бэкфил GCT/vertical oscillation/vertical ratio из Garmin
 Connect (intervals.icu их не отдаёт). Без сети, если в activity_cache нет
@@ -14,6 +14,11 @@ Connect (intervals.icu их не отдаёт). Без сети, если в act
 koop_plan — персональный план (Jason Koop), заменяет адаптивный Garmin Coach
 план как основу upcoming_plan. garmin_rt/garmin_performance остаются —
 readiness-сигналы (Body Battery, Training Readiness, VO2max, LT, сон).
+
+plan_html — перегенерирует plans/gauja_90k_2026.html из текущего
+plans/gauja_90k_2026.md на каждом прогоне пайплайна, так что любое
+редактирование плана (травма, восстановление, отмена гонки) видно в HTML
+сразу после следующего запуска — без отдельного шага синхронизации.
 
 По воскресеньям вечером: + memory_agent (перезапись ATHLETE_MEMORY.md).
 
@@ -48,6 +53,7 @@ from garmin_agent import backfill_running_dynamics_fn, garmin_performance_fn, ga
 from hydration_agent import hydration_fn
 from form_agent import form_agent_fn
 from koop_plan_agent import koop_plan_fn
+from plan_html_agent import render_plan_html_fn
 from memory_agent import memory_agent_fn
 from metrics import metrics_fn, strength_load_today
 from plan_agent import plan_agent_fn
@@ -238,6 +244,15 @@ def node_koop_plan(state: CoachState) -> CoachState:
     return koop_plan_fn(state)
 
 
+def node_plan_html(state: CoachState) -> CoachState:
+    """Перегенерирует plans/gauja_90k_2026.html. Ничего не пишет в state —
+    подхватывает любые изменения plans/gauja_90k_2026.md (травма, восстановление,
+    отмена гонки) на каждом прогоне пайплайна."""
+    print("[pipeline] ── plan_html ──")
+    render_plan_html_fn(state)
+    return state
+
+
 def node_garmin_performance(state: CoachState) -> CoachState:
     print("[pipeline] ── garmin_performance ──")
     return garmin_performance_fn(state)
@@ -318,6 +333,7 @@ def build_graph() -> StateGraph:
     g.add_node("running_dynamics",   node_running_dynamics)
     g.add_node("metrics",            node_metrics)
     g.add_node("koop_plan",          node_koop_plan)
+    g.add_node("plan_html",          node_plan_html)
     g.add_node("garmin_performance", node_garmin_performance)
     g.add_node("context",            node_context)
     g.add_node("coach",       node_coach)
@@ -332,7 +348,8 @@ def build_graph() -> StateGraph:
     g.add_edge("data",               "running_dynamics")
     g.add_edge("running_dynamics",   "metrics")
     g.add_edge("metrics",            "koop_plan")
-    g.add_edge("koop_plan",          "garmin_performance")
+    g.add_edge("koop_plan",          "plan_html")
+    g.add_edge("plan_html",          "garmin_performance")
     g.add_edge("garmin_performance", "context")
     g.add_edge("context",            "coach")
 

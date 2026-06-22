@@ -12,7 +12,7 @@ since Saturday is already the first day of taper.
 
 from datetime import date
 
-from koop_plan_agent import _entry_for_date, koop_plan_fn
+from koop_plan_agent import entry_for_date, koop_plan_fn
 from context_agent import load_plan_config
 
 
@@ -23,7 +23,7 @@ def _config():
 def test_recovery_day_resolves_to_recovery_template():
     config = _config()
     # 2026-06-22 is a Monday, the first day of the recovery block
-    entry = _entry_for_date(config, date(2026, 6, 22))
+    entry = entry_for_date(config, date(2026, 6, 22))
     assert entry is not None
     assert entry["type"] == "rest"
 
@@ -31,7 +31,7 @@ def test_recovery_day_resolves_to_recovery_template():
 def test_build_b_wednesday_resolves_to_hill_repeats():
     config = _config()
     # 2026-07-08 is a Wednesday, inside build_b (Sigulda hill repeats day)
-    entry = _entry_for_date(config, date(2026, 7, 8))
+    entry = entry_for_date(config, date(2026, 7, 8))
     assert entry is not None
     assert entry["type"] == "quality"
     assert "Сигулда" in entry["description"] or "Sigulda" in entry.get("terrain", "")
@@ -39,7 +39,7 @@ def test_build_b_wednesday_resolves_to_hill_repeats():
 
 def test_taper_day_resolves_to_explicit_date_entry():
     config = _config()
-    entry = _entry_for_date(config, date(2026, 7, 19))
+    entry = entry_for_date(config, date(2026, 7, 19))
     assert entry is not None
     assert entry["type"] == "rest"
     assert "Фаза 1" in entry["description"]
@@ -47,14 +47,14 @@ def test_taper_day_resolves_to_explicit_date_entry():
 
 def test_race_day_resolves_to_race_entry():
     config = _config()
-    entry = _entry_for_date(config, date(2026, 8, 1))
+    entry = entry_for_date(config, date(2026, 8, 1))
     assert entry is not None
     assert entry["type"] == "race"
 
 
 def test_date_beyond_horizon_returns_none():
     config = _config()
-    entry = _entry_for_date(config, date(2026, 9, 1))
+    entry = entry_for_date(config, date(2026, 9, 1))
     assert entry is None
 
 
