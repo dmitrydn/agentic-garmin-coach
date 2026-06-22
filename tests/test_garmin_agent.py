@@ -353,22 +353,28 @@ def test_garmin_performance_fn_cache_hit_skips_api(tmp_db):
 # time-series, keyed by metricDescriptors — index position is NOT stable
 # across activities, so fetch_running_dynamics must resolve it dynamically.
 
-def _activity_details_fixture(gct_vals, vo_vals, vr_vals):
-    """Builds a minimal get_activity_details()-shaped dict with 3 metrics:
+def _activity_details_fixture(gct_vals, vo_vals, vr_vals, balance_vals=None):
+    """Builds a minimal get_activity_details()-shaped dict with 4 metrics:
     directGroundContactTime, directVerticalOscillation, directVerticalRatio,
-    deliberately at non-zero, non-sequential metricsIndex positions to catch
-    any code that assumes a fixed array layout."""
+    directGroundContactBalanceLeft — deliberately at non-zero, non-sequential
+    metricsIndex positions to catch any code that assumes a fixed array layout.
+    balance_vals=None means "chest strap not worn" (no balance samples at all),
+    matching a wrist-estimated (Coros / no HRM) activity."""
     descriptors = [
         {"key": "directVerticalRatio", "metricsIndex": 0},
         {"key": "directGroundContactTime", "metricsIndex": 2},
         {"key": "directVerticalOscillation", "metricsIndex": 5},
+        {"key": "directGroundContactBalanceLeft", "metricsIndex": 7},
     ]
+    if balance_vals is None:
+        balance_vals = [None] * len(gct_vals)
     rows = []
-    for vr, gct, vo in zip(vr_vals, gct_vals, vo_vals):
-        metrics = [None] * 6
+    for vr, gct, vo, bal in zip(vr_vals, gct_vals, vo_vals, balance_vals):
+        metrics = [None] * 8
         metrics[0] = vr
         metrics[2] = gct
         metrics[5] = vo
+        metrics[7] = bal
         rows.append({"metrics": metrics})
     return {"metricDescriptors": descriptors, "activityDetailMetrics": rows}
 
@@ -401,6 +407,57 @@ def test_fetch_running_dynamics_returns_none_when_all_values_missing():
     assert fetch_running_dynamics(mock_api, "12345") is None
 
 
+# ── Sensor source detection (HRM-Pro chest strap vs Coros/wrist-estimated) ──
+
+def test_fetch_running_dynamics_detects_chest_strap_via_balance():
+    # Real left/right Ground Contact Balance present on most samples → chest strap.
+    detail = _activity_details_fixture(
+        gct_vals=[260, 270, 265, 268],
+        vo_vals=[7.0, 7.5, 7.2, 7.3],
+        vr_vals=[9.0, 9.5, 9.2, 9.3],
+        balance_vals=[49.0, 49.5, 50.0, 50.2],
+    )
+    mock_api = MagicMock()
+    mock_api.get_activity_details.return_value = detail
+
+    result = fetch_running_dynamics(mock_api, "12345")
+    assert result["rd_sensor_source"] == "chest_strap"
+
+
+def test_fetch_running_dynamics_detects_wrist_estimated_without_balance():
+    # GCT/VO/VR present (wrist can estimate these) but no balance samples
+    # at all → Coros or no HRM, wrist-only estimation.
+    detail = _activity_details_fixture(
+        gct_vals=[260, 270, 265, 268],
+        vo_vals=[7.0, 7.5, 7.2, 7.3],
+        vr_vals=[9.0, 9.5, 9.2, 9.3],
+        balance_vals=None,
+    )
+    mock_api = MagicMock()
+    mock_api.get_activity_details.return_value = detail
+
+    result = fetch_running_dynamics(mock_api, "12345")
+    assert result["rd_sensor_source"] == "wrist_estimated"
+
+
+def test_fetch_running_dynamics_sparse_balance_below_threshold_is_wrist_estimated():
+    # A couple of stray non-zero balance samples (sensor noise/brief reconnect)
+    # below the 10% threshold must NOT be classified as chest_strap.
+    n = 20
+    detail = _activity_details_fixture(
+        gct_vals=[260] * n,
+        vo_vals=[7.0] * n,
+        vr_vals=[9.0] * n,
+        balance_vals=[50.0, 50.0] + [None] * (n - 2),  # 2/20 = 10% exactly... use 1 to go below
+    )
+    detail["activityDetailMetrics"][1]["metrics"][7] = None  # drop to 1/20 = 5%, below threshold
+    mock_api = MagicMock()
+    mock_api.get_activity_details.return_value = detail
+
+    result = fetch_running_dynamics(mock_api, "12345")
+    assert result["rd_sensor_source"] == "wrist_estimated"
+
+
 def test_fetch_running_dynamics_handles_api_error_gracefully():
     mock_api = MagicMock()
     mock_api.get_activity_details.side_effect = Exception("network error")
@@ -428,6 +485,7 @@ def test_backfill_running_dynamics_updates_missing_rows(tmp_db):
 
     detail = _activity_details_fixture(
         gct_vals=[260, 270], vo_vals=[7.0, 8.0], vr_vals=[9.0, 10.0],
+        balance_vals=[49.0, 50.0],
     )
     mock_api = MagicMock()
     mock_api.get_activity_details.return_value = detail
@@ -437,12 +495,14 @@ def test_backfill_running_dynamics_updates_missing_rows(tmp_db):
 
     con = sqlite3.connect("coach.db")
     row = con.execute(
-        "SELECT avg_gct_ms, avg_vertical_osc_mm, avg_vertical_ratio FROM activity_cache WHERE id='act-rd-1'"
+        "SELECT avg_gct_ms, avg_vertical_osc_mm, avg_vertical_ratio, rd_sensor_source "
+        "FROM activity_cache WHERE id='act-rd-1'"
     ).fetchone()
     con.close()
     assert row[0] == 265.0
     assert row[1] == 75.0
     assert row[2] == 9.5
+    assert row[3] == "chest_strap"
 
 
 def test_backfill_running_dynamics_skips_rows_already_filled(tmp_db):

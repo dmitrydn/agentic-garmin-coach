@@ -421,10 +421,22 @@ def garmin_rt_fn(state: dict) -> dict:
 #
 # intervals.icu не отдаёт directGroundContactTime/directVerticalOscillation/
 # directVerticalRatio ни под каким именем поля (проверено на реальных
-# активностях — отсутствуют у всех). Эти данные реально есть в Garmin Connect
-# (HRM-Pro), но только как time-series в get_activity_details(), не как
-# готовое summary-поле. Каденс и stride length intervals.icu отдаёт нормально
+# активностях — отсутствуют у всех). Эти данные реально есть в Garmin Connect,
+# но только как time-series в get_activity_details(), не как готовое
+# summary-поле. Каденс и stride length intervals.icu отдаёт нормально
 # (average_cadence, average_stride) — их синкает data_agent.py, здесь не трогаем.
+#
+# Атлет переключается между двумя датчиками: HRM-Pro (нагрудный, натирает на
+# длинных) и Coros (на длинных/стартах). Garmin Epix Gen 2 умеет считать
+# GCT/VO/VR и с запястья без нагрудного датчика, но менее точно — поэтому
+# нужно различать источник, иначе смена датчика выглядит как изменение формы.
+# Надёжный маркер: Ground Contact Balance (L/R) физически не может считаться
+# с запястья — он есть ТОЛЬКО при активном нагрудном датчике (HRM-Pro/Pro
+# Plus/Tri, RD Pod). Используем его наличие как признак источника, не делая
+# отдельного API-вызова — он уже есть в той же time-series.
+
+_MIN_BALANCE_SAMPLE_RATIO = 0.10  # доля валидных сэмплов баланса, ниже которой считаем wrist_estimated
+
 
 def fetch_running_dynamics(api: "garminconnect.Garmin", garmin_activity_id: str) -> dict | None:
     """
@@ -432,6 +444,11 @@ def fetch_running_dynamics(api: "garminconnect.Garmin", garmin_activity_id: str)
     активности. metricsIndex НЕ стабилен между активностями — каждый раз
     строим маппинг key→index из metricDescriptors, не хардкодим позиции.
     0 и None в сэмплах отбрасываются (сенсор не локализовался/пауза).
+
+    rd_sensor_source: "chest_strap" если в сэмплах есть реальный Ground
+    Contact Balance (L/R) — значит активность снята нагрудным датчиком;
+    "wrist_estimated" если GCT/VO/VR есть, но баланса нет — значит это
+    оценка с запястья (Coros или без HRM вообще).
     """
     try:
         detail = api.get_activity_details(garmin_activity_id)
@@ -451,6 +468,12 @@ def fetch_running_dynamics(api: "garminconnect.Garmin", garmin_activity_id: str)
         vals = [r["metrics"][i] for r in rows if r["metrics"][i] not in (None, 0)]
         return round(sum(vals) / len(vals), 2) if vals else None
 
+    def _valid_count(key: str) -> int:
+        i = idx.get(key)
+        if i is None:
+            return 0
+        return sum(1 for r in rows if r["metrics"][i] not in (None, 0))
+
     gct_ms = _avg("directGroundContactTime")        # ms — уже в нужной единице
     vo_cm  = _avg("directVerticalOscillation")      # cm → mm для БД
     vr_pct = _avg("directVerticalRatio")             # dimensionless (%) — как есть
@@ -458,18 +481,22 @@ def fetch_running_dynamics(api: "garminconnect.Garmin", garmin_activity_id: str)
     if gct_ms is None and vo_cm is None and vr_pct is None:
         return None
 
+    balance_ratio = _valid_count("directGroundContactBalanceLeft") / len(rows)
+    sensor_source = "chest_strap" if balance_ratio >= _MIN_BALANCE_SAMPLE_RATIO else "wrist_estimated"
+
     return {
         "avg_gct_ms":          gct_ms,
         "avg_vertical_osc_mm": round(vo_cm * 10, 1) if vo_cm is not None else None,
         "avg_vertical_ratio":  vr_pct,
+        "rd_sensor_source":    sensor_source,
     }
 
 
 def backfill_running_dynamics_fn(state: dict) -> dict:
     """
     Python, ноль LLM-токенов. Заполняет avg_gct_ms/avg_vertical_osc_mm/
-    avg_vertical_ratio там, где они ещё NULL — без сети, если нечего бэкфилить.
-    Лимит 15 тренировок за прогон (защита от долгого первого запуска).
+    avg_vertical_ratio/rd_sensor_source там, где они ещё NULL — без сети,
+    если нечего бэкфилить. Лимит 15 тренировок за прогон.
     """
     con = sqlite3.connect("coach.db")
     rows = con.execute("""
@@ -496,9 +523,10 @@ def backfill_running_dynamics_fn(state: dict) -> dict:
             continue
         con.execute("""
             UPDATE activity_cache
-            SET avg_gct_ms=?, avg_vertical_osc_mm=?, avg_vertical_ratio=?
+            SET avg_gct_ms=?, avg_vertical_osc_mm=?, avg_vertical_ratio=?, rd_sensor_source=?
             WHERE id=?
-        """, (rd["avg_gct_ms"], rd["avg_vertical_osc_mm"], rd["avg_vertical_ratio"], activity_id))
+        """, (rd["avg_gct_ms"], rd["avg_vertical_osc_mm"], rd["avg_vertical_ratio"],
+              rd["rd_sensor_source"], activity_id))
         updated += 1
 
     con.commit()

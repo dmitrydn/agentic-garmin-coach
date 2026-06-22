@@ -61,7 +61,8 @@ def init_db(db_path: str = "coach.db") -> None:
         avg_vertical_ratio   REAL,
         avg_stride_length_m  REAL,
         efficiency_factor    REAL,
-        garmin_activity_id   TEXT
+        garmin_activity_id   TEXT,
+        rd_sensor_source     TEXT
     );
 
     CREATE TABLE IF NOT EXISTS garmin_cache (
@@ -123,6 +124,7 @@ def init_db(db_path: str = "coach.db") -> None:
         "ALTER TABLE activity_cache ADD COLUMN avg_stride_length_m REAL",
         "ALTER TABLE activity_cache ADD COLUMN efficiency_factor REAL",
         "ALTER TABLE activity_cache ADD COLUMN garmin_activity_id TEXT",
+        "ALTER TABLE activity_cache ADD COLUMN rd_sensor_source TEXT",
     ]:
         try:
             con.execute(_col_sql)

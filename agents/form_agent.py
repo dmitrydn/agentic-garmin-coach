@@ -33,9 +33,23 @@ FORM_SYSTEM = """
 Ты тренер по бегу. Пишешь еженедельный отчёт о беговой форме (Running Dynamics) атлету.
 
 АТЛЕТ: мужчина 58 лет, стаж 9 лет, трейловый бег (Sūniši, Рига).
-Устройство: Garmin Epix Gen 2 + HRM-Pro — данные точные (нагрудный датчик).
+Устройство: Garmin Epix Gen 2. Два датчика ЧСС — HRM-Pro (нагрудный, точнее)
+и Coros (натирает на длинных, поэтому атлет использует Coros на длинных
+выходах и стартах, HRM-Pro — на остальных тренировках).
 Главная цель: UTMB Gauja Trail 90km / 2500м D+ (01.08.2026).
-Методология: 80/20 + Garmin Coach Plan.
+Методология: 80/20 + персональный план (Jason Koop).
+
+ИСТОЧНИК RUNNING DYNAMICS (поле rd_sensor_source у каждой тренировки):
+- "chest_strap" — HRM-Pro, точные данные (Ground Contact Balance подтверждает датчик на груди).
+- "wrist_estimated" — Coros или без HRM, GCT/VO/VR оценены акселерометром
+  часов — менее точно, цифры систематически могут отличаться от chest_strap.
+ОБЯЗАТЕЛЬНО: если в сравниваемых периодах (текущая неделя vs предыдущие)
+встречаются ОБА источника — явно укажи это и предупреди, что часть изменения
+GCT/VO/VR может быть артефактом смены датчика, а не реальной техники.
+Если возможно, сравнивай в пределах одного источника (chest_strap к
+chest_strap, wrist_estimated к wrist_estimated) и отдельно отметь длинные/
+старты на Coros как менее точные по этим трём метрикам конкретно.
+Каденс, stride length и EF не зависят от источника RD — сравнивай их как обычно.
 
 ЕДИНИЦЫ И НОРМЫ (для атлетов 55+, трейл):
 - EF (Efficiency Factor = watts/HR): рост = улучшение беговой экономики.
@@ -87,7 +101,7 @@ def _collect_form_data() -> dict:
         SELECT date, name, distance_m, duration_s, avg_hr, avg_pace_s,
                elevation_gain_m, avg_cadence, avg_gct_ms, avg_vertical_osc_mm,
                avg_vertical_ratio, avg_stride_length_m, efficiency_factor,
-               training_load, time_in_z1, time_in_z2
+               training_load, time_in_z1, time_in_z2, rd_sensor_source
         FROM activity_cache
         WHERE date >= ? AND date <= ?
         ORDER BY date
@@ -116,6 +130,7 @@ def _collect_form_data() -> dict:
             "avg_stride_length_m":  r[11],
             "efficiency_factor":    round(r[12], 3) if r[12] else None,
             "training_load":        r[13],
+            "rd_sensor_source":     r[16],
         })
 
     current_week  = [a for a in activities if a["date"] >= week_ago]
@@ -123,6 +138,7 @@ def _collect_form_data() -> dict:
 
     # Сводные средние для быстрой проверки покрытия данных
     def _summary(acts: list[dict]) -> dict:
+        sources = [a["rd_sensor_source"] for a in acts if a["rd_sensor_source"]]
         return {
             "runs":              len(acts),
             "avg_ef":            _avg([a["efficiency_factor"] for a in acts]),
@@ -131,6 +147,7 @@ def _collect_form_data() -> dict:
             "avg_vertical_osc":  _avg([a["avg_vertical_osc_mm"] for a in acts]),
             "avg_vertical_ratio": _avg([a["avg_vertical_ratio"] for a in acts]),
             "avg_stride_m":      _avg([a["avg_stride_length_m"] for a in acts]),
+            "rd_sensor_mix":     {s: sources.count(s) for s in set(sources)} or "нет данных",
         }
 
     return {
