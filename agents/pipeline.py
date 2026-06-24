@@ -113,7 +113,6 @@ class CoachState(TypedDict, total=False):
     context_flags:      list[str]
     athlete_memory:     str
     events_context:     str
-    feedback_context:   str
     yesterday_analysis: str
     season_plan:        dict
     current_block:      str

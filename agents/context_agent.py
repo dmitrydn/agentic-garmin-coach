@@ -1,17 +1,14 @@
 """
 context_agent.py — чистый Python, ноль токенов.
 
-Читает: events.log, feedback.log, analyses/вчера.json, ATHLETE_MEMORY.md,
+Читает: events.log, analyses/вчера.json, ATHLETE_MEMORY.md,
         plans/gauja_90k_2026.md (YAML-блок с расписанием сезона).
 Вычисляет context_flags из метрик, разрешает аномалии через events.log.
 Автоматически определяет current_block и дни до B/A-race по датам.
 
-Источники фидбека (оба читаются, оба поддерживаются):
-  Вариант А — Telegram-опрос (feedback.log):
-    YYYY-MM-DDThh:mm:ss | TYPE: TELEGRAM_POLL | RPE: N | LEGS_HEAVINESS: N
-  Вариант Б — Ручной ввод в events.log или текстом в бот:
-    YYYY-MM-DD rpe=N notes=текст   (feedback.log)
-    YYYY-MM-DD тег описание        (events.log)
+Источник фидбека — Telegram-опрос (inline-кнопки, см. telegram_bot.py):
+  collect_poll_response() забирает RPE и усталость ног из getUpdates,
+  сохраняет в coach.db (recommendation_log, strength_log).
 
 Приоритет: events.log всегда участвует в flag-resolution (known_event/illness).
   Telegram-poll дополняет флаги числовыми значениями RPE и усталости ног.
@@ -44,7 +41,6 @@ def context_agent_fn(state: dict) -> dict:
     today = state["date"]
 
     events             = _read_log("events.log",  days=14)
-    feedback           = _read_log("feedback.log", days=7)
     yesterday_analysis = _read_analysis(today, offset=-1)
     athlete_memory     = _read_file("ATHLETE_MEMORY.md")
 
@@ -94,7 +90,6 @@ def context_agent_fn(state: dict) -> dict:
         "context_flags":        resolved_flags,
         "athlete_memory":       athlete_memory,
         "events_context":       events,
-        "feedback_context":     feedback,
         "yesterday_analysis":   yesterday_analysis,
         "season_plan":          season,
         "current_block":        season.get("current_block", "unknown"),

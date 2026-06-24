@@ -90,7 +90,7 @@ data → metrics → koop_plan → plan_html → garmin_performance → context 
 3. koop_plan_agent.py  — день-в-день план из plans/gauja_90k_2026.md → upcoming_plan
 4. garmin_agent.py     — readiness-сигналы: realtime (TTL 24ч) + performance (TTL 24ч).
                          garmin_plan_fn (адаптивный план) сохранён, но не вызывается из pipeline
-5. context_agent.py    — events.log, feedback.log, вчерашний analyses/JSON, ATHLETE_MEMORY.md, season_plan, контроль объёма
+5. context_agent.py    — events.log, вчерашний analyses/JSON, ATHLETE_MEMORY.md, season_plan, контроль объёма
 6. coach_agent.py      — Sonnet → readiness JSON {readiness, readiness_score, reasoning}
 7. plan_agent.py       — Sonnet → рекомендация тренировки с учётом upcoming_plan (персональный план)
 8. hydration_agent.py  — rule-based расписание по типу и длительности тренировки
