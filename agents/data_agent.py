@@ -332,6 +332,14 @@ if __name__ == "__main__":
     w = asyncio.run(fetch_wellness_delta(last, today))
     a = asyncio.run(fetch_activities_delta(last, today))
 
+    if w:
+        save_wellness(w)
+    if a:
+        save_activities(a)
+    if w or a:
+        set_last_sync(today)
+        print(f"[data_agent] сохранено: wellness={len(w)}, activities={len(a)}, last_sync→{today}")
+
     print(f"\nWellness ({len(w)} записей):")
     for d in w[-5:]:
         ctl  = d.get("ctl") or 0

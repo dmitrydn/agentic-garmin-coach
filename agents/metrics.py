@@ -296,7 +296,7 @@ def format_recent_activities(activities: list[dict], today: date | None = None) 
     summary = "\n".join(lines)
     if days_since >= 2:
         summary = (
-            f"⚠ Последняя запись {days_since} дн. назад ({last_date.strftime('%d.%m')}). "
+            f"⚠ Последняя пробежка {days_since} дн. назад ({last_date.strftime('%d.%m')}). "
             f"За более поздние дни данных о выполненных тренировках НЕТ — "
             f"не выдавай плановые тренировки за выполненные.\n" + summary
         )
