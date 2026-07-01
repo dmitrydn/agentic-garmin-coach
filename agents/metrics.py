@@ -231,6 +231,79 @@ def days_since_last_quality(activities: list[dict]) -> int:
     return (today - last_date).days
 
 
+# ── Фактически выполненные тренировки (антигаллюцинационное заземление) ────────
+
+_WEEKDAY_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+
+def format_recent_activities(activities: list[dict], today: date | None = None) -> dict:
+    """
+    Строит фактический журнал последних выполненных тренировок для LLM-агентов.
+
+    Назначение — заземление: LLM-агенты (coach/plan/synthesis) не должны
+    ВЫДУМЫВАТЬ выполненные тренировки. Раньше в промпт передавался только
+    upcoming_plan (будущее), и модель при отсутствии фактов о прошлом
+    сочиняла историю, копируя текст сегодняшнего плана («вчера были 4x3 Z3»).
+
+    Возвращает:
+      summary — человекочитаемый список последних тренировок (или явное
+                указание, что данных нет / они устарели);
+      days_since_last_activity — сколько дней назад последняя запись (или None).
+
+    Если самая свежая запись старше 1 дня — в summary добавляется явный
+    маркер устаревания, чтобы модель писала «данных нет», а не фантазировала.
+    """
+    today = today or date.today()
+
+    dated = []
+    for a in activities:
+        d_str = (a.get("start_date_local") or a.get("date") or "")[:10]
+        if not d_str:
+            continue
+        try:
+            d = date.fromisoformat(d_str)
+        except ValueError:
+            continue
+        dated.append((d, a))
+
+    if not dated:
+        return {
+            "summary": "нет записанных тренировок за последние 10 дней — "
+                       "НЕ придумывай выполненные тренировки, их не было в данных",
+            "days_since_last_activity": None,
+        }
+
+    dated.sort(key=lambda x: x[0], reverse=True)
+    last_date = dated[0][0]
+    days_since = (today - last_date).days
+
+    lines = []
+    for d, a in dated:
+        load = a.get("training_load") or a.get("icu_training_load") or 0
+        dur_min = round((a.get("duration_s") or a.get("moving_time") or 0) / 60)
+        z1_min = round((a.get("time_in_z1") or 0) / 60)
+        z2_min = round((a.get("time_in_z2") or 0) / 60)
+        name = (a.get("name") or "тренировка").strip()
+        wd = _WEEKDAY_RU[d.weekday()]
+        parts = [f"{d.strftime('%d.%m')} ({wd}) — {name}: {dur_min}мин, load {round(load)}"]
+        if z1_min or z2_min:
+            parts.append(f"Z1 {z1_min}м/Z2 {z2_min}м")
+        rpe = a.get("rpe")
+        if rpe is not None:
+            parts.append(f"RPE {rpe}")
+        lines.append(", ".join(parts))
+
+    summary = "\n".join(lines)
+    if days_since >= 2:
+        summary = (
+            f"⚠ Последняя запись {days_since} дн. назад ({last_date.strftime('%d.%m')}). "
+            f"За более поздние дни данных о выполненных тренировках НЕТ — "
+            f"не выдавай плановые тренировки за выполненные.\n" + summary
+        )
+
+    return {"summary": summary, "days_since_last_activity": days_since}
+
+
 # ── Мезоцикл 3+1 ─────────────────────────────────────────────────────────────
 
 def mesocycle_week(start_date: str) -> int:
@@ -291,6 +364,15 @@ def metrics_fn(state: dict) -> dict:
         FROM activity_cache WHERE date >= ?
     """, (week_start,)).fetchall()
 
+    # Фактически выполненные тренировки за 10 дней — заземление для LLM,
+    # чтобы coach/plan/synthesis не выдумывали историю (см. format_recent_activities).
+    recent_start = (date.today() - timedelta(days=10)).isoformat()
+    recent_rows = con.execute("""
+        SELECT duration_s, training_load, name, date,
+               time_in_z1, time_in_z2, rpe
+        FROM activity_cache WHERE date >= ? ORDER BY date DESC
+    """, (recent_start,)).fetchall()
+
     # Силовая нагрузка сегодня — из strength_log
     today_str    = date.today().isoformat()
     strength_row = con.execute(
@@ -314,6 +396,16 @@ def metrics_fn(state: dict) -> dict:
         }
         for r in week_rows
     ]
+
+    recent_activities = [
+        {
+            "duration_s":   r[0], "training_load": r[1], "name": r[2],
+            "date":         r[3], "time_in_z1":    r[4], "time_in_z2": r[5],
+            "rpe":          r[6],
+        }
+        for r in recent_rows
+    ]
+    recent = format_recent_activities(recent_activities)
 
     today_w = history[-1] if history else {}
     ctl = today_w.get("ctl") or 0.0
@@ -354,6 +446,8 @@ def metrics_fn(state: dict) -> dict:
         "mesocycle_week":     meso_week,
         "adjusted_loads":     adj_loads,
         "strength_load_today": s_load,
+        "recent_activities_summary":  recent["summary"],
+        "days_since_last_activity":   recent["days_since_last_activity"],
     }
 
 

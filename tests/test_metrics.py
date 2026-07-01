@@ -6,10 +6,13 @@ float precision, boundary zones, and edge-case guards.
 """
 
 import pytest
+from datetime import date, timedelta
+
 from metrics import (
     adjusted_training_load,
     calculate_acwr,
     days_since_last_quality,
+    format_recent_activities,
     hrv_analysis,
     mesocycle_week,
     rhr_trend_analysis,
@@ -227,6 +230,46 @@ def test_days_since_quality_ignores_easy_run():
     acts = [{"date": yesterday, "training_load": 40, "name": "Easy Run"}]
     result = days_since_last_quality(acts)
     assert result == 99  # no quality found
+
+
+# ── format_recent_activities: factual grounding vs hallucination ──────────────
+
+def test_recent_activities_empty_states_no_data_explicitly():
+    """No activities → explicit 'none' text so LLM won't invent history."""
+    out = format_recent_activities([])
+    assert out["days_since_last_activity"] is None
+    assert "нет" in out["summary"].lower()
+    assert "не придумывай" in out["summary"].lower()
+
+
+def test_recent_activities_stale_data_carries_warning():
+    """Last activity ≥2 days old → explicit staleness marker for the LLM."""
+    old = (date.today() - timedelta(days=7)).isoformat()
+    acts = [{"date": old, "name": "Base", "duration_s": 3600,
+             "training_load": 60, "time_in_z1": 3000, "time_in_z2": 600}]
+    out = format_recent_activities(acts)
+    assert out["days_since_last_activity"] == 7
+    assert "⚠" in out["summary"]
+    assert "НЕТ" in out["summary"]
+
+
+def test_recent_activities_lists_actual_sessions_sorted_desc():
+    """Real sessions are listed newest-first with duration and load."""
+    today = date.today()
+    acts = [
+        {"date": (today - timedelta(days=3)).isoformat(), "name": "Intervals",
+         "duration_s": 3000, "training_load": 95, "time_in_z1": 600,
+         "time_in_z2": 1200, "rpe": 7},
+        {"date": (today - timedelta(days=1)).isoformat(), "name": "Easy",
+         "duration_s": 2400, "training_load": 40, "time_in_z1": 2000,
+         "time_in_z2": 200},
+    ]
+    out = format_recent_activities(acts)
+    lines = [l for l in out["summary"].splitlines() if "—" in l]
+    # newest (Easy, -1d) must appear before older (Intervals, -3d)
+    assert lines[0].index("Easy") >= 0
+    assert "Intervals" in lines[1]
+    assert "RPE 7" in out["summary"]
 
 
 # ── metrics_fn LangGraph node integration ─────────────────────────────────────

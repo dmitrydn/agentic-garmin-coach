@@ -25,6 +25,13 @@ PLAN_SYSTEM = """
 АТЛЕТ: профиль — в поле «Долгосрочная память тренера» в запросе (ATHLETE_MEMORY.md).
 Методология: 80/20. Покрытие: Sūniši (~100м/10км). A-гонка: UTMB Gauja Trail 90км / 2500м D+ (01.08.2026).
 
+ЗАЗЕМЛЕНИЕ НА ФАКТЫ (антигаллюцинация): раздел «Недавно ВЫПОЛНЕННЫЕ
+тренировки» — единственный источник о том, что уже сделано. План Koop
+(на сегодня / на неделю) — это БУДУЩЕЕ, ещё НЕ выполнено. Не описывай
+плановую тренировку как выполненную и не ссылайся на «вчерашнюю» сессию,
+которой нет в журнале выполненных. Если журнал пуст/устарел — не сочиняй
+историю тренировок.
+
 ПРИНЦИПЫ РЕКОМЕНДАЦИИ:
 1. Приоритет — персональный план (Jason Koop, в upcoming_plan): если на сегодня
    есть запись, адаптируй её под текущий readiness, не заменяй полностью.
@@ -116,8 +123,11 @@ def plan_agent_fn(state: dict) -> dict:
 Readiness: {state.get('readiness')} (score: {state.get('readiness_score')})
 Reasoning тренера: {state.get('readiness_reasoning')}
 
-Персональный план (Koop) на сегодня: {json.dumps(todays_workout, ensure_ascii=False) if todays_workout else 'нет данных'}
-Персональный план на неделю: {json.dumps((state.get('upcoming_plan') or [])[:7], ensure_ascii=False)}
+Недавно ВЫПОЛНЕННЫЕ тренировки (факт, из журнала активности):
+{state.get('recent_activities_summary', 'нет данных')}
+
+Персональный план (Koop) на сегодня — ЗАПЛАНИРОВАНО, ещё НЕ выполнено: {json.dumps(todays_workout, ensure_ascii=False) if todays_workout else 'нет данных'}
+Персональный план на неделю (будущее): {json.dumps((state.get('upcoming_plan') or [])[:7], ensure_ascii=False)}
 
 Текущие метрики:
 - ACWR: {state.get('acwr')} ({state.get('acwr_zone')})

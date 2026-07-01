@@ -83,6 +83,8 @@ class CoachState(TypedDict, total=False):
     rhr_rising:         bool
     adjusted_loads:     list[dict]
     days_since_quality: int
+    recent_activities_summary: str
+    days_since_last_activity:  int
     z1z2_ratio_week:    float
     z1z2_compliant:     bool
     mesocycle_week:     int

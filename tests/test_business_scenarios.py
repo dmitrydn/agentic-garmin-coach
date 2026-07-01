@@ -228,6 +228,33 @@ def test_coach_prompt_contains_all_7_plan_days():
         )
 
 
+def test_coach_prompt_grounds_on_completed_activities():
+    """Guarantee: coach prompt carries the factual completed-activities log AND
+    labels the Koop plan as planned/not-yet-done — so the LLM can't pass a
+    planned workout off as 'yesterday's session' (anti-hallucination)."""
+    state = {
+        **_CLEAN_STATE,
+        "recent_activities_summary": "нет записанных тренировок за последние 10 дней",
+        "upcoming_plan": [{"date": TODAY, "type": "quality",
+                           "description": "4x3 Z3", "duration_min": 50}],
+    }
+
+    captured_prompt = {}
+    def capture(**kwargs):
+        captured_prompt["user"] = kwargs["messages"][0]["content"]
+        return make_llm_msg(json.dumps(load_fixture("coach_llm_ok.json")))
+
+    with patch("coach_agent.client") as mock_client:
+        mock_client.messages.create.side_effect = lambda **kw: capture(**kw)
+        from coach_agent import coach_agent_fn
+        coach_agent_fn(state)
+
+    user_content = captured_prompt.get("user", "")
+    assert "ВЫПОЛНЕННЫЕ" in user_content, "completed-activities section missing"
+    assert "нет записанных тренировок" in user_content
+    assert "СЕГОДНЯ" in user_content, "plan not labelled as today/planned"
+
+
 # ── 8. relative time labels prevent LLM hallucination ────────────────────────
 
 def test_past_events_carry_relative_labels(tmp_path):
