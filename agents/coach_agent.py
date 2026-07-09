@@ -10,6 +10,7 @@ coach_agent.py — Sonnet 4.6, оценка readiness атлета.
 
 import json
 import os
+import re
 
 import anthropic
 from dotenv import load_dotenv
@@ -255,26 +256,43 @@ Garmin Performance:
     print("[coach_agent] запрос к Opus 4.8...")
     response = client.messages.create(
         model="claude-opus-4-8",
-        max_tokens=1000,
+        max_tokens=3000,
         system=system,
         messages=[{"role": "user", "content": user_content}],
     )
     raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = "\n".join(
-            line for line in raw.splitlines()
-            if not line.startswith("```")
-        ).strip()
+
+    # Модель иногда добавляет прозу до/после JSON или оборачивает его в
+    # ```-fences (порой только с одной стороны, напр. только закрывающий) —
+    # вырезаем сам объект по границам первой '{' и последней '}', а не
+    # полагаемся на то, что весь raw — валидный JSON as-is.
+    start, end = raw.find("{"), raw.rfind("}")
+    if start != -1 and end > start:
+        raw = raw[start:end + 1]
 
     try:
         result = json.loads(raw)
     except json.JSONDecodeError:
-        print(f"[coach_agent] ошибка парсинга JSON: {raw[:200]}")
-        result = {
-            "readiness":       "normal",
-            "readiness_score": 5.0,
-            "reasoning":       "Ошибка парсинга — применяю нейтральную оценку",
-        }
+        print(f"[coach_agent] ошибка парсинга JSON (len={len(raw)}): {raw[:300]}")
+        # Ответ мог быть обрезан лимитом токенов после того, как модель уже
+        # приняла решение — пытаемся восстановить readiness регэкспом вместо
+        # тихой подмены на нейтральное "normal".
+        m = re.search(r'"readiness"\s*:\s*"(\w+)"', raw)
+        recovered = m.group(1) if m else None
+        if recovered in ("rest", "low"):
+            result = {
+                "readiness":       recovered,
+                "readiness_score": 3.0,
+                "reasoning":       "Ответ модели обрезан лимитом токенов, но readiness "
+                                    f"восстановлен из частичного JSON ({recovered}).",
+            }
+        else:
+            result = {
+                "readiness":       "low",
+                "readiness_score": 3.0,
+                "reasoning":       "Ошибка парсинга ответа модели — применяю консервативную "
+                                    "оценку (low) вместо нейтральной, пока причина не выяснена.",
+            }
 
     print(f"[coach_agent] readiness={result['readiness']} score={result['readiness_score']}")
     return {

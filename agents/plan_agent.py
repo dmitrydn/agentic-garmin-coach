@@ -9,6 +9,7 @@ plan_agent.py — Sonnet 4.6, рекомендация тренировки дн
 
 import json
 import os
+import re
 
 import anthropic
 from dotenv import load_dotenv
@@ -159,30 +160,52 @@ Garmin real-time (если доступен):
     print("[plan_agent] запрос к Sonnet 4.6...")
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1000,
+        max_tokens=2000,
         system=PLAN_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )
     raw = response.content[0].text.strip()
-    if raw.startswith("```"):
-        raw = "\n".join(
-            line for line in raw.splitlines()
-            if not line.startswith("```")
-        ).strip()
+
+    # Модель иногда добавляет прозу до/после JSON или оборачивает его в
+    # ```-fences (порой только с одной стороны, напр. только закрывающий) —
+    # вырезаем сам объект по границам первой '{' и последней '}', а не
+    # полагаемся на то, что весь raw — валидный JSON as-is.
+    start, end = raw.find("{"), raw.rfind("}")
+    if start != -1 and end > start:
+        raw = raw[start:end + 1]
 
     try:
         recommendation = json.loads(raw)
     except json.JSONDecodeError:
-        print(f"[plan_agent] ошибка парсинга JSON: {raw[:200]}")
-        recommendation = {
-            "type":         "easy",
-            "title":        "Лёгкий бег (fallback)",
-            "duration_min": 45,
-            "zones":        ["Z1", "Z2"],
-            "description":  "Лёгкий восстановительный бег. Ошибка парсинга — применяю безопасный fallback.",
-            "cautions":     ["пульс не выше 140"],
-            "garmin_plan_used": False,
-        }
+        print(f"[plan_agent] ошибка парсинга JSON (len={len(raw)}): {raw[:300]}")
+        # Ответ мог быть обрезан лимитом токенов уже после того, как модель
+        # приняла решение (напр. "rest" при травме) — пытаемся восстановить
+        # хотя бы тип тренировки регэкспом, а не тихо подменять его на "easy".
+        m = re.search(r'"type"\s*:\s*"(\w+)"', raw)
+        recovered_type = m.group(1) if m else None
+        if recovered_type == "rest":
+            recommendation = {
+                "type":         "rest",
+                "title":        "Полный отдых (ответ LLM обрезан, тип восстановлен)",
+                "duration_min": 0,
+                "zones":        [],
+                "description":  "Ответ модели был обрезан лимитом токенов до завершения JSON, "
+                                 "но модель успела указать type=rest — применяю это решение "
+                                 "вместо предположения о лёгкой тренировке.",
+                "cautions":     [],
+                "garmin_plan_used": False,
+            }
+        else:
+            recommendation = {
+                "type":         "rest",
+                "title":        "Отдых (fallback после ошибки парсинга)",
+                "duration_min": 0,
+                "zones":        [],
+                "description":  "Не удалось распарсить ответ LLM и восстановить тип тренировки — "
+                                 "применяю консервативный fallback (отдых), а не предположение об 'easy'.",
+                "cautions":     [],
+                "garmin_plan_used": False,
+            }
 
     # Hard cap: B-race within 10 days → long run duration is capped regardless of LLM output.
     # A 58-year-old needs 7-10 days to recover from a long run; Garmin's plan doesn't know

@@ -32,6 +32,9 @@ _LOAD_TAGS    = {"hard-run", "camp-start", "camp-end", "no-sleep", "travel", "he
 _RACE_TAGS    = {"race-a", "race-b", "race-c"}
 # Теги болезни → добавляют флаг illness, НЕ нейтрализуют метрические флаги
 _ILLNESS_TAGS = {"illness"}
+# Теги травмы → добавляют флаг injury, НЕ нейтрализуют метрические флаги
+# (аналогично illness: боль в ахилле не "объясняет" рост RHR как безобидную нагрузку)
+_INJURY_TAGS  = {"injury"}
 
 
 # ── LangGraph node ────────────────────────────────────────────────────────────
@@ -51,10 +54,10 @@ def context_agent_fn(state: dict) -> dict:
     today_events = _parse_today_events(today, events)
     today_tags   = {tag for tag, _ in today_events}
 
-    # Illness: добавляем флаг, метрические флаги остаются как есть
+    # Illness/injury: добавляем флаг, метрические флаги остаются как есть
     # Load/race events: метрические флаги помечаются known_event (объяснены)
     is_load_explained = bool(today_tags & (_LOAD_TAGS | _RACE_TAGS)) \
-                        and not (today_tags & _ILLNESS_TAGS)
+                        and not (today_tags & (_ILLNESS_TAGS | _INJURY_TAGS))
 
     resolved_flags = [
         f"known_event|{f}" if is_load_explained else f
@@ -64,6 +67,8 @@ def context_agent_fn(state: dict) -> dict:
     for tag, desc in today_events:
         if tag in _ILLNESS_TAGS:
             resolved_flags.append(f"illness:{desc}" if desc else "illness")
+        elif tag in _INJURY_TAGS:
+            resolved_flags.append(f"injury:{desc}" if desc else "injury")
 
     # Добавляем флаги из Telegram-опроса (высокая субъективная усталость)
     if poll:

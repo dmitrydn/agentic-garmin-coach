@@ -112,10 +112,40 @@ def test_coach_fallback_on_invalid_json():
         mock_client.messages.create.return_value = make_llm_msg("This is not JSON at all")
         result = coach_agent_fn(_BASE_COACH_STATE)
 
-    # Fallback must provide safe defaults
-    assert result["readiness"] == "normal"
-    assert result["readiness_score"] == 5.0
+    # Unrecoverable parse failure must fall back conservatively (low), not "normal" —
+    # we can't tell why parsing failed, so assume the worse case for an aging athlete.
+    assert result["readiness"] == "low"
+    assert result["readiness_score"] == 3.0
     assert "readiness_reasoning" in result
+
+
+def test_coach_fallback_recovers_readiness_from_truncated_json():
+    # Real incident: Opus decided readiness=rest (Achilles injury) but the response
+    # got cut off by max_tokens before the JSON closed. The fallback must recover
+    # the readiness the model already committed to, not silently discard it.
+    truncated = '{\n  "readiness": "rest",\n  "readiness_score": 1.0,\n  "reasoning": "Инсерцион'
+    with patch("coach_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(truncated)
+        result = coach_agent_fn(_BASE_COACH_STATE)
+
+    assert result["readiness"] == "rest"
+
+
+def test_coach_parses_json_with_leading_prose():
+    # Real incident: Opus sometimes prepends reasoning prose before the JSON object
+    # despite the system prompt. This should parse correctly (not hit the fallback).
+    with_preamble = (
+        'Данные получены. Ключевой факт — прогрессирующая инсерционная '
+        'ахиллопатия.\n{"readiness": "rest", "readiness_score": 2.0, '
+        '"reasoning": "Травма ахилла требует полного отдыха"}'
+    )
+    with patch("coach_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(with_preamble)
+        result = coach_agent_fn(_BASE_COACH_STATE)
+
+    assert result["readiness"] == "rest"
+    assert result["readiness_score"] == 2.0
+    assert "ахилла" in result["readiness_reasoning"]
 
 
 # ── plan_agent_fn ─────────────────────────────────────────────────────────────
@@ -183,6 +213,28 @@ def test_plan_fallback_on_invalid_json():
     rec = result["recommendation"]
     assert "type" in rec
     assert "duration_min" in rec
+    # Unrecoverable parse failure must fall back to rest, not "easy" — assuming a
+    # workout is safe is the wrong direction to guess wrong in for a 58-year-old athlete.
+    assert rec["type"] == "rest"
+    assert rec["duration_min"] == 0
+
+
+def test_plan_fallback_recovers_rest_type_from_truncated_json():
+    # Real incident (09.07.2026): Sonnet decided type=rest (Achilles insertional pain,
+    # day 2) but max_tokens cut the response off mid-description before the JSON
+    # closed. The old fallback silently replaced this with a 45min "easy" run —
+    # exactly wrong given the injury. The fallback must recover the committed type.
+    truncated = (
+        '{\n  "type": "rest",\n  "title": "Полный отдых — инсерционная боль",\n'
+        '  "duration_min": 0,\n  "duration_estimated": false,\n  "zones": [],\n'
+        '  "description": "Сегодняшняя сессия (60 мин Z1,'
+    )
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(truncated)
+        result = plan_agent_fn(_BASE_PLAN_STATE)
+
+    assert result["recommendation"]["type"] == "rest"
+    assert result["recommendation"]["duration_min"] == 0
 
 
 # ── synthesis_fn ──────────────────────────────────────────────────────────────
