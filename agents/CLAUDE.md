@@ -17,9 +17,9 @@
 | `context_agent`   | Python-функция  | —                   | чтение файлов, флаги, контроль объёма |
 | `hydration_agent` | Python-функция  | —                   | rule-based расписание              |
 | `coach_agent`     | LLM             | `claude-opus-4-8`   | readiness, интерпретация метрик    |
-| `plan_agent`      | LLM             | `claude-sonnet-4-6` | рекомендация тренировки дня        |
-| `synthesis_agent` | LLM             | `claude-sonnet-4-6` | Telegram-сообщение                 |
-| `memory_agent`    | LLM             | `claude-sonnet-4-6` | обновление ATHLETE_MEMORY.md       |
+| `plan_agent`      | LLM             | `claude-sonnet-5`   | рекомендация тренировки дня        |
+| `synthesis_agent` | LLM             | `claude-sonnet-5`   | Telegram-сообщение                 |
+| `memory_agent`    | LLM             | `claude-sonnet-5`   | обновление ATHLETE_MEMORY.md       |
 
 **Правило:** LLM — только для рассуждений на естественном языке.
 Детерминированные вычисления — чистый Python, ноль токенов.

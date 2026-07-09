@@ -286,8 +286,8 @@ def test_synthesis_duration_estimated_true_injects_warning(tmp_db):
 
 # ── memory_agent_fn ───────────────────────────────────────────────────────────
 
-def test_memory_agent_calls_sonnet_4_6_model(tmp_db):
-    """memory_agent must use claude-sonnet-4-6, not the Opus model."""
+def test_memory_agent_calls_sonnet_model(tmp_db):
+    """memory_agent must use claude-sonnet-5, not the Opus model."""
     with patch("memory_agent.client") as mock_client:
         mock_client.messages.create.return_value = make_llm_msg(
             "## Профиль атлета\nUpdated content."
@@ -295,7 +295,7 @@ def test_memory_agent_calls_sonnet_4_6_model(tmp_db):
         memory_agent_fn({})
 
     model_used = mock_client.messages.create.call_args.kwargs["model"]
-    assert model_used == "claude-sonnet-4-6"
+    assert model_used == "claude-sonnet-5"
 
 
 def test_memory_agent_writes_athlete_memory_file(tmp_db):

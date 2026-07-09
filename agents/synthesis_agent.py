@@ -1,5 +1,5 @@
 """
-synthesis_agent.py — Sonnet 4.6, финальное сообщение в Telegram + сохранение анализа.
+synthesis_agent.py — Sonnet 5, финальное сообщение в Telegram + сохранение анализа.
 
 Вход: полный State после всех предыдущих агентов.
 Выход: final_message (текст для Telegram) + analysis_json (для analyses/YYYY-MM-DD.json).
@@ -62,7 +62,7 @@ SYNTHESIS_SYSTEM = """
 # ── LangGraph node ────────────────────────────────────────────────────────────
 
 def synthesis_fn(state: dict) -> dict:
-    """Sonnet 4.6. Строит сообщение и сохраняет analysis_json."""
+    """Sonnet 5. Строит сообщение и сохраняет analysis_json."""
 
     rec       = state.get("recommendation") or {}
     hydration = state.get("hydration_schedule") or []
@@ -131,10 +131,11 @@ Garmin real-time:
 - До A-race ({state.get('season_plan', {}).get('a_race_date', '?')}): {state.get('days_to_a_race', 'н/д')} дн.
 """.strip()
 
-    print("[synthesis] запрос к Sonnet 4.6...")
+    print("[synthesis] запрос к Sonnet 5...")
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         max_tokens=1000,
+        thinking={"type": "disabled"},
         system=SYNTHESIS_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )

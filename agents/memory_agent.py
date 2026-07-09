@@ -1,5 +1,5 @@
 """
-memory_agent.py — Sonnet 4.6, раз в неделю (воскресенье вечером).
+memory_agent.py — Sonnet 5, раз в неделю (воскресенье вечером).
 
 Читает: recommendation_log (последние 7 дней), wellness_cache,
         текущий ATHLETE_MEMORY.md.
@@ -162,7 +162,7 @@ ACWR оптимум: 0.85-1.15. Рельеф Sūniši: terrain multiplier 1.1-1.
 
 def memory_agent_fn(state: dict | None = None) -> dict:
     """
-    Sonnet 4.6. Обновляет ATHLETE_MEMORY.md.
+    Sonnet 5. Обновляет ATHLETE_MEMORY.md.
     Можно вызывать standalone или из pipeline при воскресенье.
     """
     weekly_data    = _collect_weekly_data()
@@ -187,10 +187,11 @@ Garmin Performance (VO2max, LT HR, стадии сна):
 Обнови файл, сохрани структуру и лимиты. Выведи только содержимое файла.
 """.strip()
 
-    print("[memory_agent] запрос к Sonnet 4.6...")
+    print("[memory_agent] запрос к Sonnet 5...")
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         max_tokens=1000,
+        thinking={"type": "disabled"},
         system=MEMORY_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )

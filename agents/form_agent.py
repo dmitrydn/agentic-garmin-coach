@@ -1,5 +1,5 @@
 """
-form_agent.py — Sonnet 4.6, еженедельный анализ беговой формы.
+form_agent.py — Sonnet 5, еженедельный анализ беговой формы.
 
 Читает activity_cache за 28 дней, анализирует Running Dynamics:
   EF (Efficiency Factor), каденс, GCT, вертикальные показатели, длину шага.
@@ -165,7 +165,7 @@ def _collect_form_data() -> dict:
 
 def form_agent_fn(state: dict | None = None) -> dict:
     """
-    Sonnet 4.6. Анализирует Running Dynamics за 28 дней.
+    Sonnet 5. Анализирует Running Dynamics за 28 дней.
     Возвращает {"form_report": str}.
     Можно вызывать standalone или из pipeline.py по воскресеньям.
     """
@@ -196,10 +196,11 @@ def form_agent_fn(state: dict | None = None) -> dict:
 Напиши еженедельный отчёт о беговой форме по структуре из system prompt.
 """.strip()
 
-    print("[form_agent] запрос к Sonnet 4.6...")
+    print("[form_agent] запрос к Sonnet 5...")
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         max_tokens=800,
+        thinking={"type": "disabled"},
         system=FORM_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )

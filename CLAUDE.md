@@ -1,7 +1,7 @@
 # CLAUDE.md — Инструкции для Claude Code
 
 Персональный AI беговой тренер для атлета 58 лет.
-Оркестратор: LangGraph. LLM: Opus 4.8 (coach) + Sonnet 4.6 (plan, synthesis, memory).
+Оркестратор: LangGraph. LLM: Opus 4.8 (coach) + Sonnet 5 (plan, synthesis, memory).
 
 → Стек, структура проекта, переменные окружения, статус агентов: `README.md`
 
@@ -27,9 +27,9 @@ LLM вызывают только четыре агента:
 | Агент | Модель | Задача |
 |---|---|---|
 | `coach_agent` | `claude-opus-4-8` | Оценка readiness из HRV, ACWR, флагов, памяти тренера |
-| `plan_agent` | `claude-sonnet-4-6` | Адаптация Garmin-плана под текущий readiness |
-| `synthesis_agent` | `claude-sonnet-4-6` | Финальное сообщение в Telegram |
-| `memory_agent` | `claude-sonnet-4-6` | Еженедельная перезапись ATHLETE_MEMORY.md |
+| `plan_agent` | `claude-sonnet-5` | Адаптация Garmin-плана под текущий readiness |
+| `synthesis_agent` | `claude-sonnet-5` | Финальное сообщение в Telegram |
+| `memory_agent` | `claude-sonnet-5` | Еженедельная перезапись ATHLETE_MEMORY.md |
 
 Остальные агенты (`data`, `metrics`, `garmin`, `context`, `hydration`) — детерминированная логика, Python.
 
@@ -38,7 +38,8 @@ client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 def call_sonnet(system: str, user: str, max_tokens: int = 1000) -> str:
     r = client.messages.create(
-        model="claude-sonnet-4-6", max_tokens=max_tokens,
+        model="claude-sonnet-5", max_tokens=max_tokens,
+        thinking={"type": "disabled"},
         system=system, messages=[{"role": "user", "content": user}]
     )
     return r.content[0].text

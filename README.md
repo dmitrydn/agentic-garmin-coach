@@ -13,7 +13,7 @@
 | Данные primary | intervals.icu API | CTL/ATL/Form, HRV, сон, активности, зоны темпа |
 | Данные Garmin-only | Garmin Connect (garth) | Body Battery, Training Readiness, Training Status, Garmin Coach план |
 | Оркестратор | LangGraph | Stateful multi-agent pipeline с checkpointing |
-| LLM агенты | Claude Sonnet 4.6 | Coach, Plan, Synthesis, Memory — только 4 агента |
+| LLM агенты | Claude Sonnet 5 | Coach, Plan, Synthesis, Memory — только 4 агента |
 | Python агенты | чистый Python, 0 токенов | Data, Metrics, Garmin, Context, Hydration |
 | Разработка | Claude Code CLI | Написание и обслуживание агентного кода |
 | Интерфейс | Telegram-бот | Утренний брифинг, фидбек, напоминания |
@@ -128,7 +128,7 @@ GARMIN_PASSWORD=
     вычисляет context_flags, разрешает аномалии через events.log
          │
          ▼
-[5] coach_agent · Sonnet 4.6
+[5] coach_agent · Sonnet 5
     ATHLETE_MEMORY.md + метрики + флаги + upcoming_plan
     → readiness: high / normal / low / rest  +  readiness_score 1–10
          │
@@ -140,7 +140,7 @@ GARMIN_PASSWORD=
          │                                                  │
          └──────────────────────┬───────────────────────────┘
                                 ▼
-                       [7] plan_agent · Sonnet 4.6
+                       [7] plan_agent · Sonnet 5
                            адаптирует Garmin-план под readiness
                            тип / зоны / длительность / предостережения
                            (при readiness=rest — без LLM-вызова)
@@ -150,12 +150,12 @@ GARMIN_PASSWORD=
                            rule-based расписание по типу и длительности
                                 │
                                 ▼
-                       [9] synthesis_agent · Sonnet 4.6
+                       [9] synthesis_agent · Sonnet 5
                            → Telegram: брифинг 250-400 слов
                            → сохраняет analyses/YYYY-MM-DD.json
 
 ─────────────── раз в неделю, воскресенье ───────────────
-                       [10] memory_agent · Sonnet 4.6
+                       [10] memory_agent · Sonnet 5
                             читает recommendation_log + wellness_cache за 7 дней
                             → перезаписывает секции ATHLETE_MEMORY.md
 ```

@@ -1,5 +1,5 @@
 """
-plan_agent.py — Sonnet 4.6, рекомендация тренировки дня.
+plan_agent.py — Sonnet 5, рекомендация тренировки дня.
 
 Вход: readiness из coach_agent + upcoming_plan из garmin_agent + полный State.
 Выход: dict с типом, описанием, зонами, длительностью, предостережениями.
@@ -98,7 +98,7 @@ Z5: максимальный
 
 def plan_agent_fn(state: dict) -> dict:
     """
-    Sonnet 4.6. Если readiness=rest — возвращает без LLM-вызова.
+    Sonnet 5. Если readiness=rest — возвращает без LLM-вызова.
     """
     if state.get("readiness") == "rest":
         print("[plan_agent] readiness=rest — день отдыха без LLM")
@@ -157,10 +157,11 @@ Garmin real-time (если доступен):
 {state.get('events_context') or 'нет событий'}
 """.strip()
 
-    print("[plan_agent] запрос к Sonnet 4.6...")
+    print("[plan_agent] запрос к Sonnet 5...")
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-sonnet-5",
         max_tokens=2000,
+        thinking={"type": "disabled"},
         system=PLAN_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )

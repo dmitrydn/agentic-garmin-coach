@@ -1,5 +1,5 @@
 """
-coach_agent.py — Sonnet 4.6, оценка readiness атлета.
+coach_agent.py — Opus 4.8, оценка readiness атлета.
 
 Вход: метрики из metrics_fn + контекст из context_agent_fn.
 Выход: JSON {readiness, readiness_score, reasoning}.
@@ -186,7 +186,7 @@ Form=-15 на неделе 1 — сигнал перегрузки.
 # ── LangGraph node ────────────────────────────────────────────────────────────
 
 def coach_agent_fn(state: dict) -> dict:
-    """Sonnet 4.6. Единственный вызов LLM в первой половине пайплайна."""
+    """Opus 4.8. Единственный вызов LLM в первой половине пайплайна."""
 
     # Compute HRV deviation using Garmin value when available (today's reading vs rolling avg)
     hrv_garmin    = state.get("hrv_garmin_today")
