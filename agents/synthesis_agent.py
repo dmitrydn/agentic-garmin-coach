@@ -134,11 +134,14 @@ Garmin real-time:
     print("[synthesis] запрос к Sonnet 5...")
     response = client.messages.create(
         model="claude-sonnet-5",
-        max_tokens=1000,
+        # 250-400 слов по-русски ≈ до ~1400 токенов. 1000 обрезал длинные сообщения.
+        max_tokens=2500,
         thinking={"type": "disabled"},
         system=SYNTHESIS_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )
+    if response.stop_reason == "max_tokens":
+        print("[synthesis] ⚠️ сообщение обрезано по max_tokens — поднять лимит")
     final_message = response.content[0].text.strip()
 
     # Структурированный анализ для analyses/YYYY-MM-DD.json

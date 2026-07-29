@@ -43,6 +43,7 @@ _TYPE_BADGES = {
     "strength":      ("Силовая",      "#9333ea"),
     "race":          ("СТАРТ",        "#ca8a04"),
     "back-to-back":  ("Back-to-back", "#0ea5e9"),
+    "cross":         ("Кросс",        "#0891b2"),
 }
 _WEEKDAY_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 

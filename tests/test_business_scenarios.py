@@ -98,6 +98,39 @@ def test_illness_events_produce_illness_flag():
     assert "illness" in tags
 
 
+def test_injury_events_produce_injury_flag():
+    """Guarantee: injury event in log always produces 'injury' context flag."""
+    today = TODAY
+    events_text = f"{today} injury Ахилл, боль у пятки\n"
+    parsed = _parse_today_events(today, events_text)
+    tags = {tag for tag, _ in parsed}
+    assert "injury" in tags
+
+
+def test_today_injury_flag_survives_read_log_labeling(tmp_path):
+    """Regression: prod feeds _read_log output (with "[сегодня…]" label injected
+    between date and tag) into _parse_today_events. The injury tag must survive —
+    иначе флаг не ставится в день травмы (баг: метка читалась как тег)."""
+    today = date.today().isoformat()
+    log_file = tmp_path / "events.log"
+    log_file.write_text(f"{today} injury Ахилл, боль у пятки\n", encoding="utf-8")
+    labeled = _read_log(str(log_file), days=14)
+    assert "[сегодня" in labeled  # метка действительно вставлена
+    tags = {tag for tag, _ in _parse_today_events(today, labeled)}
+    assert "injury" in tags, f"injury тег потерян после разметки: {labeled!r}"
+
+
+def test_today_illness_flag_survives_read_log_labeling(tmp_path):
+    """Regression (тот же класс, что injury): illness-тег сегодняшнего события
+    должен выживать после вставки метки _read_log."""
+    today = date.today().isoformat()
+    log_file = tmp_path / "events.log"
+    log_file.write_text(f"{today} illness Насморк\n", encoding="utf-8")
+    labeled = _read_log(str(log_file), days=14)
+    tags = {tag for tag, _ in _parse_today_events(today, labeled)}
+    assert "illness" in tags
+
+
 def test_illness_flag_not_neutralized_by_load_tag():
     """Guarantee: illness is never silenced by known_event logic."""
     from context_agent import _ILLNESS_TAGS, _LOAD_TAGS
@@ -294,6 +327,61 @@ def test_quality_not_flagged_after_two_days():
 
 
 # ── 10. B-race ≤ 7d → long run capped at 75 min ──────────────────────────────
+
+def test_injury_flag_forbids_running_type():
+    """Guarantee: injury flag in context → plan_agent never returns a running
+    workout, even if the LLM proposes one. Бег детерминированно заменяется на
+    не-ударный кросс (не бег), длительность сохраняется."""
+    llm_run = {
+        "type": "easy", "title": "Лёгкий бег Z1", "duration_min": 50,
+        "duration_estimated": False, "zones": ["Z1"],
+        "description": "Лёгкий восстановительный бег.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {**_CLEAN_STATE, "readiness": "low", "readiness_score": 4.5,
+             "context_flags": ["injury:Ахилл, боль у пятки"]}
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_run))
+        result = plan_agent_fn(state)
+
+    rec = result["recommendation"]
+    _running = {"easy", "quality", "long", "tempo", "interval", "intervals", "hill", "hills", "run", "running"}
+    assert rec["type"] not in _running, f"injury must forbid running, got type={rec['type']}"
+    assert rec["type"] == "cross", f"expected cross replacement, got {rec['type']}"
+    assert rec["duration_min"] == 50, "cross must preserve session duration"
+    assert any("Травма" in c for c in rec.get("cautions", [])), "expected injury caution"
+
+
+def test_injury_flag_allows_strength():
+    """Boundary: injury guard forbids только бег — силовую (модифицируемую под травму)
+    и покой не трогает."""
+    llm_strength = {
+        "type": "strength", "title": "Силовая", "duration_min": 45,
+        "duration_estimated": False, "zones": [],
+        "description": "Силовая, модифицированная под ахилл.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {**_CLEAN_STATE, "readiness": "normal",
+             "context_flags": ["injury:Ахилл, боль у пятки"]}
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_strength))
+        result = plan_agent_fn(state)
+
+    assert result["recommendation"]["type"] == "strength", "strength must survive injury guard"
+
+
+def test_no_injury_flag_leaves_running_untouched():
+    """Boundary: без injury-флага беговой тип проходит как есть — гард не срабатывает зря."""
+    llm_run = {
+        "type": "easy", "title": "Лёгкий бег", "duration_min": 50,
+        "duration_estimated": False, "zones": ["Z1"],
+        "description": "Лёгкий бег.", "cautions": [], "garmin_plan_used": True,
+    }
+    state = {**_CLEAN_STATE, "readiness": "normal", "context_flags": []}
+    with patch("plan_agent.client") as mock_client:
+        mock_client.messages.create.return_value = make_llm_msg(json.dumps(llm_run))
+        result = plan_agent_fn(state)
+
+    assert result["recommendation"]["type"] == "easy"
+
 
 def test_b_race_7d_caps_long_run():
     """Guarantee: LLM recommending 153-min long run is capped at 75 min when B-race ≤ 7 days."""

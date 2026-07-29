@@ -199,12 +199,17 @@ def form_agent_fn(state: dict | None = None) -> dict:
     print("[form_agent] запрос к Sonnet 5...")
     response = client.messages.create(
         model="claude-sonnet-5",
-        max_tokens=800,
+        # 200-300 слов по-русски + таблица ≈ 900-1050+ токенов (кириллица ~2.5-3.5
+        # токена/слово). 800 упирался в потолок → отчёт обрезался на полуслове.
+        max_tokens=2000,
         thinking={"type": "disabled"},
         system=FORM_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )
     report = response.content[0].text.strip()
+
+    if response.stop_reason == "max_tokens":
+        print(f"[form_agent] ⚠️ отчёт обрезан по max_tokens ({len(report)} симв.) — поднять лимит")
 
     print(f"[form_agent] отчёт готов, {len(report)} символов")
     return {"form_report": report}

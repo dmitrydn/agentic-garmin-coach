@@ -190,11 +190,21 @@ Garmin Performance (VO2max, LT HR, стадии сна):
     print("[memory_agent] запрос к Sonnet 5...")
     response = client.messages.create(
         model="claude-sonnet-5",
-        max_tokens=1000,
+        # Промпт выводит весь ATHLETE_MEMORY.md (~1700-2000 токенов кириллицы).
+        # 1000 обрезал файл вдвое при перезаписи. 3000 — с запасом.
+        max_tokens=3000,
         thinking={"type": "disabled"},
         system=MEMORY_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )
+
+    # Защита persistent-состояния: обрезанную по лимиту память НЕЛЬЗЯ записывать —
+    # иначе ATHLETE_MEMORY.md затрётся половиной файла. Оставляем предыдущий файл.
+    if response.stop_reason == "max_tokens":
+        print("[memory_agent] ⚠️ ответ обрезан по max_tokens — ATHLETE_MEMORY.md НЕ "
+              "перезаписан, оставлен предыдущий файл. Поднять лимит.")
+        return {"athlete_memory_updated": False}
+
     new_memory = response.content[0].text.strip()
 
     # Снять обёртки ```markdown если модель добавила

@@ -256,10 +256,15 @@ Garmin Performance:
     print("[coach_agent] запрос к Opus 4.8...")
     response = client.messages.create(
         model="claude-opus-4-8",
-        max_tokens=3000,
+        # reasoning "без ограничения по длине" при illness/травме — длиннее всего
+        # ровно в день, когда объяснение критично. 3000 мог обрезать. 4000 + лог.
+        max_tokens=4000,
         system=system,
         messages=[{"role": "user", "content": user_content}],
     )
+    if response.stop_reason == "max_tokens":
+        print("[coach_agent] ⚠️ ответ обрезан по max_tokens — reasoning мог потеряться, "
+              "readiness восстановится из частичного JSON. Поднять лимит.")
     raw = response.content[0].text.strip()
 
     # Модель иногда добавляет прозу до/после JSON или оборачивает его в

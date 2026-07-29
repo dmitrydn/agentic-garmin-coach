@@ -175,7 +175,7 @@ def test_plan_type_is_valid_value():
         mock_client.messages.create.return_value = make_llm_msg(json.dumps(resp))
         result = plan_agent_fn(_BASE_PLAN_STATE)
 
-    valid_types = {"easy", "quality", "long", "back-to-back", "strength", "rest"}
+    valid_types = {"easy", "quality", "long", "back-to-back", "strength", "rest", "cross"}
     assert result["recommendation"]["type"] in valid_types
 
 

@@ -165,6 +165,9 @@ Garmin real-time (если доступен):
         system=PLAN_SYSTEM,
         messages=[{"role": "user", "content": user_content}],
     )
+    if response.stop_reason == "max_tokens":
+        print("[plan_agent] ⚠️ ответ обрезан по max_tokens — JSON мог не закрыться, "
+              "сработает recovery. Поднять лимит.")
     raw = response.content[0].text.strip()
 
     # Модель иногда добавляет прозу до/после JSON или оборачивает его в
@@ -247,6 +250,28 @@ Garmin real-time (если доступен):
                 f"⚠️ A-race через {days_to_a} д ({a_km} км) — полный тейпер, длинный выход ограничен {cap} мин"
             )
             print(f"[plan_agent] A-race taper cap applied: {original}→{cap} мин")
+
+    # Hard rule: injury-флаг в events.log → беговая сессия запрещена ДЕТЕРМИНИРОВАННО,
+    # независимо от решения LLM. Беговая травма (напр. инсерционный ахилл) не должна
+    # получать бег, даже если readiness не rest. Силовая и покой разрешены (силовую
+    # можно модифицировать под травму — не трогаем). Мягкий кросс схемой не отличается
+    # от "easy", поэтому консервативно переводим в rest и явно разрешаем кросс в caution.
+    _running_types = {"easy", "quality", "long", "tempo", "interval", "intervals",
+                      "hill", "hills", "run", "running"}
+    injury_flag = any(str(f).startswith("injury") for f in state.get("context_flags", []))
+    if injury_flag and recommendation.get("type") in _running_types:
+        forbidden = recommendation.get("type")
+        # Бег → не-ударный кросс (вело/бассейн, Z1). Длительность сохраняем (кросс
+        # разрешён и полезен для базы), но бег как удар/эксцентрику по травме — нет.
+        # Полный покой остаётся опцией атлета — в caution.
+        recommendation["type"]  = "cross"
+        recommendation["zones"] = ["Z1"]
+        recommendation.setdefault("cautions", []).append(
+            f"⛔ Травма в events.log — беговая сессия ({forbidden}) запрещена "
+            "детерминированно. Замена: не-ударный кросс (вело/бассейн) в Z1, либо "
+            "полный покой, если травма беспокоит и в покое."
+        )
+        print(f"[plan_agent] ⛔ injury guard: тип {forbidden}→cross (бег запрещён при травме)")
 
     print(f"[plan_agent] тип={recommendation.get('type')} длительность={recommendation.get('duration_min')}мин")
     return {"recommendation": recommendation}
