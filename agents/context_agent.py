@@ -214,12 +214,19 @@ def _read_file(path: str) -> str:
 
 
 _BLOCK_LABELS = {
+    # v2.x — гоночный план UTMB Gauja (DNS 29.07, историческое)
     "recovery": "Восстановление после гонки 20.06",
     "build_a":  "Build A (аэробный ребилд)",
     "build_b":  "Build B (пик специфики, вертикаль)",
     "build_c":  "Build C (deload)",
     "taper":    "Тейпер",
     "a_race":   "A-RACE день",
+    # v3 — реабилитация ахилла → возврат к бегу (Stirnu Buks 12.09)
+    "rehab":      "Rehab (разгрузка + изометрия)",
+    "montenegro": "Черногория (хайкинг, бег только плоско)",
+    "rebuild1":   "Rebuild 1 (возврат объёма, HSR)",
+    "rebuild2":   "Rebuild 2 (объём + дозированная вертикаль)",
+    "sharpen":    "Sharpen (трейл-специфика, мини-тейпер)",
 }
 
 
@@ -342,12 +349,25 @@ def _read_season_plan(today: str) -> dict:
 
 
 def _parse_today_events(today: str, events_text: str) -> list[tuple[str, str]]:
-    """Возвращает [(тег, описание)] из строк events.log за сегодня."""
+    """Возвращает [(тег, описание)] из строк events.log за сегодня.
+
+    ВНИМАНИЕ: _read_log вставляет метку вида "[сегодня, ещё не выполнено]" между
+    датой и тегом. Наивный split() тогда отдаёт тегом саму метку ("[сегодня,"), и
+    illness/injury/load/race-теги СЕГОДНЯШНИХ событий не распознаются → флаги не
+    ставятся. Поэтому метку снимаем перед разбором (регресс: см. Layer-B тесты
+    test_today_*_flag_survives_read_log_labeling).
+    """
     result = []
     for line in events_text.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) >= 2 and parts[0] == today:
-            result.append((parts[1], parts[2] if len(parts) > 2 else ""))
+        s = line.strip()
+        if s[:10] != today:
+            continue
+        rest = re.sub(r"^\s*\[[^\]]*\]", "", s[10:])  # снять метку _read_log, если есть
+        parts = rest.split(None, 1)
+        if parts:
+            tag  = parts[0]
+            desc = parts[1] if len(parts) > 1 else ""
+            result.append((tag, desc))
     return result
 
 

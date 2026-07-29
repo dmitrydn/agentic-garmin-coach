@@ -2,12 +2,16 @@
 test_koop_plan_agent.py — Layer I: koop_plan_agent day-lookup correctness.
 
 koop_plan_agent reads plans/gauja_90k_2026.md and must resolve the correct
-day-by-day prescription for any date in the plan horizon (recovery/build_a/
-build_b/build_c via weekly_templates, taper/race_day via explicit dates).
+day-by-day prescription for any date in the plan horizon. As of v3 (2026-07-29)
+the plan is an Achilles rehab → return-to-run block (Gauja 90k DNS'd), anchored
+to the conditional comeback race Stirnu Buks Lūsis on 2026-09-12:
 
-Blocks run Mon-Sun (v2.1, 2026-06-22) to match metrics.py's Monday-anchored
-weekly volume window — build_c is the one exception (Mon-Fri, 5 days),
-since Saturday is already the first day of taper.
+  rehab      (29.07–03.08)
+  montenegro (04.08–18.08)
+  rebuild1   (19.08–24.08)
+  rebuild2   (25.08–31.08)
+  sharpen    (01.09–11.09)      -- via weekly_templates
+  09-07..09-11 via explicit taper_days, 09-12 via race_day.
 """
 
 from datetime import date
@@ -20,78 +24,72 @@ def _config():
     return load_plan_config()
 
 
-def test_recovery_day_resolves_to_recovery_template():
+def test_rehab_friday_resolves_to_strength_template():
     config = _config()
-    # 2026-06-22 is a Monday, the first day of the recovery block
-    entry = entry_for_date(config, date(2026, 6, 22))
+    # 2026-07-31 is a Friday inside the rehab block (Achilles-safe gym day)
+    entry = entry_for_date(config, date(2026, 7, 31))
     assert entry is not None
-    assert entry["type"] == "rest"
+    assert entry["type"] == "strength"
 
 
-def test_build_b_wednesday_resolves_to_hill_repeats():
+def test_montenegro_wednesday_resolves_to_hike():
     config = _config()
-    # 2026-07-08 is a Wednesday, inside build_b (Sigulda hill repeats day)
-    entry = entry_for_date(config, date(2026, 7, 8))
+    # 2026-08-05 is a Wednesday inside the montenegro block (hiking day)
+    entry = entry_for_date(config, date(2026, 8, 5))
     assert entry is not None
-    assert entry["type"] == "quality"
-    assert "Сигулда" in entry["description"] or "Sigulda" in entry.get("terrain", "")
+    assert entry["type"] == "easy"
+    assert entry.get("terrain") == "hike"
+
+
+def test_rebuild_saturday_resolves_to_long_run():
+    config = _config()
+    # 2026-08-22 is a Saturday inside rebuild1 (first return long run, flat)
+    entry = entry_for_date(config, date(2026, 8, 22))
+    assert entry is not None
+    assert entry["type"] == "long"
 
 
 def test_taper_day_resolves_to_explicit_date_entry():
     config = _config()
-    entry = entry_for_date(config, date(2026, 7, 19))
+    # 2026-09-09 is an explicit taper_days rest day (mini-taper before the race)
+    entry = entry_for_date(config, date(2026, 9, 9))
     assert entry is not None
     assert entry["type"] == "rest"
-    assert "Фаза 1" in entry["description"]
 
 
 def test_race_day_resolves_to_race_entry():
     config = _config()
-    entry = entry_for_date(config, date(2026, 8, 1))
+    entry = entry_for_date(config, date(2026, 9, 12))
     assert entry is not None
     assert entry["type"] == "race"
 
 
 def test_date_beyond_horizon_returns_none():
     config = _config()
-    entry = entry_for_date(config, date(2026, 9, 1))
+    entry = entry_for_date(config, date(2026, 10, 1))
     assert entry is None
 
 
 def test_koop_plan_fn_returns_seven_days_with_duration_estimated_false():
-    result = koop_plan_fn({"date": "2026-06-22"})
+    result = koop_plan_fn({"date": "2026-08-04"})
     plan = result["upcoming_plan"]
     assert len(plan) == 7
     assert all(w["duration_estimated"] is False for w in plan)
-    assert plan[0]["date"] == "2026-06-22"
-    assert plan[0]["type"] == "rest"
+    assert plan[0]["date"] == "2026-08-04"
+    assert plan[0]["type"] == "easy"   # montenegro tue (flat run)
 
 
-def test_koop_plan_fn_lookahead_crosses_recovery_to_build_a_boundary():
-    # 2026-06-25 + 6 days = 2026-07-01, crossing recovery -> build_a (Sun 06-28 -> Mon 06-29)
-    result = koop_plan_fn({"date": "2026-06-25"})
-    dates = [w["date"] for w in result["upcoming_plan"]]
-    assert "2026-06-28" in dates  # last recovery day (Sunday)
-    assert "2026-06-29" in dates  # first build_a day (Monday)
+def test_koop_plan_fn_lookahead_crosses_rehab_to_montenegro_boundary():
+    # 2026-07-30 + 6 days = 2026-08-05, crossing rehab -> montenegro (08-03 -> 08-04)
+    result = koop_plan_fn({"date": "2026-07-30"})
     types_by_date = {w["date"]: w["type"] for w in result["upcoming_plan"]}
-    assert types_by_date["2026-06-28"] == "rest"   # recovery's sun entry
-    assert types_by_date["2026-06-29"] == "rest"   # build_a's mon entry
+    assert types_by_date["2026-08-03"] == "rest"   # rehab's mon entry
+    assert types_by_date["2026-08-04"] == "easy"   # montenegro's tue entry
 
 
-def test_koop_plan_fn_lookahead_crosses_build_b_to_build_c_boundary():
-    # build_b's peak long run (Sat 07-11) and its back-to-back (Sun 07-12) must
-    # both stay inside build_b — that's the whole point of the Mon-Sun realignment.
-    result = koop_plan_fn({"date": "2026-07-09"})
+def test_koop_plan_fn_lookahead_resolves_taper_days_and_race():
+    # explicit dated entries (taper_days) and race_day must resolve in the lookahead
+    result = koop_plan_fn({"date": "2026-09-08"})
     types_by_date = {w["date"]: w["type"] for w in result["upcoming_plan"]}
-    assert types_by_date["2026-07-11"] == "long"
-    assert types_by_date["2026-07-12"] == "easy"
-    assert types_by_date["2026-07-13"] == "rest"   # first build_c day (Monday)
-
-
-def test_koop_plan_fn_lookahead_crosses_build_c_to_taper_boundary():
-    # build_c ends Fri 07-17; Sat 07-18 is taper's own explicit "soft start" day,
-    # not build_c's old Saturday rest entry.
-    result = koop_plan_fn({"date": "2026-07-16"})
-    types_by_date = {w["date"]: w["type"] for w in result["upcoming_plan"]}
-    assert types_by_date["2026-07-17"] == "strength"  # last build_c day
-    assert types_by_date["2026-07-18"] == "rest"       # taper day 1
+    assert types_by_date["2026-09-09"] == "rest"   # taper day (mini-taper)
+    assert types_by_date["2026-09-12"] == "race"   # race day

@@ -20,8 +20,9 @@ def _config():
 def test_collect_calendar_spans_from_first_block_to_race_day():
     config = _config()
     days = _collect_calendar(config)
-    assert days[0]["date"] == date(2026, 6, 22)
-    assert days[-1]["date"] == date(2026, 8, 1)
+    # v3 rehab plan: first block (rehab) starts 2026-07-29, race day 2026-09-12
+    assert days[0]["date"] == date(2026, 7, 29)
+    assert days[-1]["date"] == date(2026, 9, 12)
 
 
 def test_render_html_has_balanced_div_tags():
@@ -34,7 +35,7 @@ def test_render_html_has_balanced_div_tags():
 def test_render_html_marks_today():
     config = _config()
     days = _collect_calendar(config)
-    html = _render_html(config, days, date(2026, 7, 8))
+    html = _render_html(config, days, date(2026, 8, 5))
     assert 'class="day today"' in html
 
 
