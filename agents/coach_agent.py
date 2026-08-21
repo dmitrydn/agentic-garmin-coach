@@ -19,6 +19,19 @@ load_dotenv()
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+DEBUG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs", "parse_failures")
+
+
+def _dump_raw_on_parse_failure(agent_name: str, raw: str) -> None:
+    """Сохраняет необработанный ответ LLM при сбое парсинга JSON — иначе
+    единственный след ошибки уходит в stdout и теряется после закрытия сессии."""
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+    from datetime import datetime
+    path = os.path.join(DEBUG_DIR, f"{agent_name}_{datetime.now():%Y-%m-%dT%H-%M-%S}.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(raw)
+    print(f"[{agent_name}] raw-ответ сохранён для отладки: {path}")
+
 # ── System prompt ─────────────────────────────────────────────────────────────
 # {mesocycle_week} подставляется динамически в coach_agent_fn
 
@@ -65,7 +78,9 @@ ACWR зоны (ATL/CTL, Gabbett 2016):
 ГОНКИ 2026:
 - 23.05 (C, trail 23км, пройдена), 20.06 (фактически прошедшая гонка 59км —
   неконтролируемое усилие, удар головой, см. context_flags/events.log),
-  01.08 (A — главная, UTMB Gauja Trail 90км / 2500м D+).
+  01.08 (DNS — UTMB Gauja Trail 90км отменена из-за инсерционной тендинопатии
+  ахилла, см. events.log). После rehab-пивота новая A-гонка: 12.09 —
+  Stirnu Buks Lūsis, 30км / 600м D+ (см. plans/gauja_90k_2026.md).
   B-race ОТМЕНЕНА 21.06 (см. plans/gauja_90k_2026.md §1) — второго старта
   перед A-race не будет. Никогда не упоминай "B-race" как будущее событие
   или с обратным отсчётом дней — она осталась только как тег прошедшего
@@ -135,8 +150,8 @@ Form=-15 на неделе 1 — сигнал перегрузки.
   воспроизводимо тренировочным длинным выходом. Никогда не рекомендовать старт,
   если это создаёт риск для A-гонки или продлевает восстановление от болезни.
 - B-гонка прошла 20.06 и больше не в горизонте планирования — второго старта
-  перед A-race не будет, не рекомендовать новых стартов до 01.08.
-- A-гонка (UTMB Gauja 90km / 2500м D+, 01.08): абсолютный приоритет. Любое решение о
+  перед A-race не будет, не рекомендовать новых стартов до 12.09.
+- A-гонка (Stirnu Buks Lūsis, 30km / 600м D+, 12.09): абсолютный приоритет. Любое решение о
   тренировке или C/B-гонке оценивать через призму влияния на A-гонку.
 
 Физиологические ограничения болезни (для context_flags с illness):
@@ -279,6 +294,7 @@ Garmin Performance:
         result = json.loads(raw)
     except json.JSONDecodeError:
         print(f"[coach_agent] ошибка парсинга JSON (len={len(raw)}): {raw[:300]}")
+        _dump_raw_on_parse_failure("coach_agent", raw)
         # Ответ мог быть обрезан лимитом токенов после того, как модель уже
         # приняла решение — пытаемся восстановить readiness регэкспом вместо
         # тихой подмены на нейтральное "normal".

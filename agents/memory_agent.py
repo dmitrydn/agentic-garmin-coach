@@ -138,7 +138,7 @@ def _default_memory_template() -> str:
 
 ## Текущая фаза [макс 150 токенов]
 Данных нет. Мезоцикл: старт 2026-05-01. Фаза силовых: adaptation.
-Ближайшая гонка: 23.05 C (trail 23km). Главная цель: 01.08 UTMB Gauja Trail 90km / 2500м D+.
+Ближайшая гонка: 23.05 C (trail 23km). Главная цель: 12.09 Stirnu Buks Lūsis, 30km / 600м D+ (UTMB Gauja Trail 90km — DNS 01.08, инсерционная тендинопатия ахилла).
 
 ## HRV профиль [макс 100 токенов]
 Rolling baseline: нет данных.

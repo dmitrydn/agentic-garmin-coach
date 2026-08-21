@@ -9,6 +9,7 @@ coach.db
 analyses/
 feedback.log
 ATHLETE_MEMORY.md
+logs/
 
 # ── Python ────────────────────────────────────────────────────────────────────
 .venv/

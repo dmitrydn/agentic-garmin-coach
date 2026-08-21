@@ -18,13 +18,26 @@ load_dotenv()
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
+DEBUG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs", "parse_failures")
+
+
+def _dump_raw_on_parse_failure(agent_name: str, raw: str) -> None:
+    """Сохраняет необработанный ответ LLM при сбое парсинга JSON — иначе
+    единственный след ошибки уходит в stdout и теряется после закрытия сессии."""
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+    from datetime import datetime
+    path = os.path.join(DEBUG_DIR, f"{agent_name}_{datetime.now():%Y-%m-%dT%H-%M-%S}.txt")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(raw)
+    print(f"[{agent_name}] raw-ответ сохранён для отладки: {path}")
+
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 PLAN_SYSTEM = """
 Ты персональный тренер по бегу. Составь рекомендацию тренировки на сегодня.
 
 АТЛЕТ: профиль — в поле «Долгосрочная память тренера» в запросе (ATHLETE_MEMORY.md).
-Методология: 80/20. Покрытие: Sūniši (~100м/10км). A-гонка: UTMB Gauja Trail 90км / 2500м D+ (01.08.2026).
+Методология: 80/20. Покрытие: Sūniši (~100м/10км). A-гонка: Stirnu Buks Lūsis, 30км / 600м D+ (12.09.2026). UTMB Gauja Trail 90км — DNS 01.08.2026 (инсерционная тендинопатия ахилла, rehab-пивот).
 
 ЗАЗЕМЛЕНИЕ НА ФАКТЫ (антигаллюцинация): раздел «Недавно ВЫПОЛНЕННЫЕ
 тренировки» — единственный источник о том, что уже сделано. План Koop
@@ -182,6 +195,7 @@ Garmin real-time (если доступен):
         recommendation = json.loads(raw)
     except json.JSONDecodeError:
         print(f"[plan_agent] ошибка парсинга JSON (len={len(raw)}): {raw[:300]}")
+        _dump_raw_on_parse_failure("plan_agent", raw)
         # Ответ мог быть обрезан лимитом токенов уже после того, как модель
         # приняла решение (напр. "rest" при травме) — пытаемся восстановить
         # хотя бы тип тренировки регэкспом, а не тихо подменять его на "easy".
