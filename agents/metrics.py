@@ -187,7 +187,7 @@ def weekly_volume_status(actual_minutes: float | None, target_minutes: float | N
                           tolerance: float = 0.15) -> dict:
     """
     Сравнивает фактический недельный объём (мин, из activity_cache) с целевым
-    объёмом текущего блока (weekly_targets в plans/gauja_90k_2026.md).
+    объёмом текущего блока (weekly_targets в plans/season_plan_2026.md).
     Допуск ±15% — за пределами считается отклонением, требующим коррекции
     объёма в plan_agent (context_flags: volume_over / volume_under).
     """

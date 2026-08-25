@@ -12,7 +12,7 @@
 | `data_agent`      | Python-функция  | —                   | fetch → parse → SQLite             |
 | `metrics`         | Python-модуль   | —                   | HRV rolling, ACWR, RHR, 80/20, объём |
 | `koop_plan_agent` | Python-функция  | —                   | персональный план (Jason Koop) — основа upcoming_plan |
-| `plan_html_agent` | Python-функция  | —                   | рендерит plans/gauja_90k_2026.md → .html на каждый прогон |
+| `plan_html_agent` | Python-функция  | —                   | рендерит plans/season_plan_2026.md → .html на каждый прогон |
 | `garmin_agent`    | Python-функция  | —                   | readiness-сигналы: cache check → API → parse. `garmin_plan_fn` (адаптивный план) больше не вызывается из pipeline — заменён `koop_plan_agent` |
 | `context_agent`   | Python-функция  | —                   | чтение файлов, флаги, контроль объёма |
 | `hydration_agent` | Python-функция  | —                   | rule-based расписание              |
@@ -45,7 +45,7 @@ class CoachState(TypedDict):
     mesocycle_week: int          # 1-3 = нагрузка / 4 = восстановление
     strength_load_today: float
     # koop_plan_agent (Python) — персональный план, заменяет Garmin Coach как основу
-    upcoming_plan: list[dict]    # план на 7 дней, из plans/gauja_90k_2026.md
+    upcoming_plan: list[dict]    # план на 7 дней, из plans/season_plan_2026.md
     # garmin_agent (Python) — readiness-сигналы только
     garmin_rt: dict              # Body Battery, Readiness, Status; TTL 24ч
     # context_agent (Python)
@@ -71,10 +71,10 @@ data → metrics → koop_plan → plan_html → garmin_performance → context 
                                                                                                     plan → hydration → synthesis → END
 ```
 
-`koop_plan`: персональный план (Jason Koop), читает `plans/gauja_90k_2026.md`
+`koop_plan`: персональный план (Jason Koop), читает `plans/season_plan_2026.md`
 день-в-день, заполняет `upcoming_plan`. Заменил `garmin_plan` в графе.
 
-`plan_html`: перегенерирует `plans/gauja_90k_2026.html` на каждый прогон —
+`plan_html`: перегенерирует `plans/season_plan_2026.html` на каждый прогон —
 ничего не пишет в `CoachState`. Подхватывает любую правку плана (травма,
 восстановление, отмена гонки) без отдельного шага синхронизации.
 
@@ -87,7 +87,7 @@ data → metrics → koop_plan → plan_html → garmin_performance → context 
 ```
 1. data_agent.py       — init_db + delta fetch wellness/activities + save → SQLite
 2. metrics.py          — HRV rolling, ACWR, RHR trend, terrain multiplier, 80/20, мезоцикл, объём
-3. koop_plan_agent.py  — день-в-день план из plans/gauja_90k_2026.md → upcoming_plan
+3. koop_plan_agent.py  — день-в-день план из plans/season_plan_2026.md → upcoming_plan
 4. garmin_agent.py     — readiness-сигналы: realtime (TTL 24ч) + performance (TTL 24ч).
                          garmin_plan_fn (адаптивный план) сохранён, но не вызывается из pipeline
 5. context_agent.py    — events.log, вчерашний analyses/JSON, ATHLETE_MEMORY.md, season_plan, контроль объёма

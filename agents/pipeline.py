@@ -15,8 +15,8 @@ koop_plan — персональный план (Jason Koop), заменяет �
 план как основу upcoming_plan. garmin_rt/garmin_performance остаются —
 readiness-сигналы (Body Battery, Training Readiness, VO2max, LT, сон).
 
-plan_html — перегенерирует plans/gauja_90k_2026.html из текущего
-plans/gauja_90k_2026.md на каждом прогоне пайплайна, так что любое
+plan_html — перегенерирует plans/season_plan_2026.html из текущего
+plans/season_plan_2026.md на каждом прогоне пайплайна, так что любое
 редактирование плана (травма, восстановление, отмена гонки) видно в HTML
 сразу после следующего запуска — без отдельного шага синхронизации.
 
@@ -246,8 +246,8 @@ def node_koop_plan(state: CoachState) -> CoachState:
 
 
 def node_plan_html(state: CoachState) -> CoachState:
-    """Перегенерирует plans/gauja_90k_2026.html. Ничего не пишет в state —
-    подхватывает любые изменения plans/gauja_90k_2026.md (травма, восстановление,
+    """Перегенерирует plans/season_plan_2026.html. Ничего не пишет в state —
+    подхватывает любые изменения plans/season_plan_2026.md (травма, восстановление,
     отмена гонки) на каждом прогоне пайплайна."""
     print("[pipeline] ── plan_html ──")
     render_plan_html_fn(state)

@@ -2,7 +2,7 @@
 context_agent.py — чистый Python, ноль токенов.
 
 Читает: events.log, analyses/вчера.json, ATHLETE_MEMORY.md,
-        plans/gauja_90k_2026.md (YAML-блок с расписанием сезона).
+        plans/season_plan_2026.md (YAML-блок с расписанием сезона).
 Вычисляет context_flags из метрик, разрешает аномалии через events.log.
 Автоматически определяет current_block и дни до B/A-race по датам.
 
@@ -25,7 +25,7 @@ import yaml
 
 from metrics import weekly_volume_status
 
-PLAN_PATH = Path(__file__).parent.parent / "plans" / "gauja_90k_2026.md"
+PLAN_PATH = Path(__file__).parent.parent / "plans" / "season_plan_2026.md"
 
 # Теги, которые объясняют нагрузку/усталость → флаги помечаются known_event
 _LOAD_TAGS    = {"hard-run", "camp-start", "camp-end", "no-sleep", "travel", "heat", "rest-day", "strength"}
@@ -269,7 +269,7 @@ def _parse_race_dates_from_log(today: str, path: str = "events.log") -> dict:
 
 def load_plan_config(plan_path: Path = PLAN_PATH) -> dict:
     """
-    Парсит yaml-блок из plans/gauja_90k_2026.md (общий загрузчик —
+    Парсит yaml-блок из plans/season_plan_2026.md (общий загрузчик —
     используется и context_agent (season_plan), и koop_plan_agent (календарь)).
     Возвращает {} при любой ошибке (graceful degradation).
     """
@@ -301,7 +301,7 @@ def block_for_date(config: dict, today_date: date) -> str:
 
 def _read_season_plan(today: str) -> dict:
     """
-    Читает plans/gauja_90k_2026.md, вычисляет current_block, days_to_a_race
+    Читает plans/season_plan_2026.md, вычисляет current_block, days_to_a_race
     (и days_to_b_race — только если в плане есть блок b_race; начиная с
     2026-06-21 B-race отменена, ключ отсутствует — это штатный случай, не ошибка).
     Дата A-race из events.log перекрывает yaml (events.log — живой источник правды).

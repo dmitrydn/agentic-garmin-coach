@@ -105,13 +105,13 @@ a_race:
   distance_km: 30
   elevation_gain_m: 600
   priority: A
-  status: conditional
-  note: comeback-цель после DNS Gauja 90k; гейт по переносимости нагрузки, не по календарю
+  status: firm
+  note: FIRM GO (решение атлета 25.08.2026). Rehab-mode; дневные сессии под утренним ахилл-гейтом.
 
 # Gauja 90k (2026-08-01) отменена 29.07 — DNS, см. §1 и events.log (тег dns).
 # b_race намеренно отсутствует.
 
-current_block: rehab
+current_block: rebuild2
 
 block_schedule:
   rehab:      {start: "2026-07-29", end: "2026-08-03"}
@@ -125,8 +125,8 @@ weekly_targets:
   rehab:      {target_minutes: 150, target_tss: 80,  target_vert_m: 20}
   montenegro: {target_minutes: 200, target_tss: 110, target_vert_m: 100}
   rebuild1:   {target_minutes: 245, target_tss: 170, target_vert_m: 60}
-  rebuild2:   {target_minutes: 300, target_tss: 210, target_vert_m: 150}
-  sharpen:    {target_minutes: 230, target_tss: 165, target_vert_m: 350}
+  rebuild2:   {target_minutes: 270, target_tss: 200, target_vert_m: 480}
+  sharpen:    {target_minutes: 205, target_tss: 150, target_vert_m: 220}
 
 # weekly_templates: ключ блока -> день недели (mon..sun) -> прескрипция дня.
 # Используется koop_plan_agent.py для блоков rehab/montenegro/rebuild1/rebuild2/sharpen.
@@ -176,20 +176,36 @@ weekly_templates:
     sat: {type: long,     duration_min: 120, zones: ["Z1","Z2"], terrain: "trail", description: "Ключевая race-sim: 120 мин на трейле, D+ до 300-400м, ГЕЙТ ЖЁСТКО по ахиллу. Все подъёмы powerhike, спуски контролируемо. Rehab-mode репетиция 12.09. Любое утро хуже/боль на спуске → срезать/отменить."}
     sun: {type: easy,     duration_min: 45,  zones: ["Z1"],      terrain: "flat",  description: "45 мин Z1 плоско, восстановление после трейла."}
 
-# taper_days: явные даты (мини-тейпер к старту), override блочный шаблон.
+# daily_overrides (в ключе taper_days — koop_plan читает его раньше блочных шаблонов):
+# финальные 18 дней 26.08→11.09 закодированы по датам (решённый план; человекочит. версия — plans/lusis1_final18_2026-08-25.md).
 taper_days:
-  "2026-09-07": {type: easy, duration_min: 30, zones: ["Z1"], terrain: "flat", description: "Мини-тейпер день 1: 30 мин Z1 плоско, D+≤15м."}
-  "2026-09-08": {type: easy, duration_min: 40, zones: ["Z2"], terrain: "flat", description: "40 мин Z2 плоско + 4×30с strides, D+≤15м."}
-  "2026-09-09": {type: rest, duration_min: 0,  zones: [],      terrain: "-",    description: "Покой. Изометрия лёгкая."}
-  "2026-09-10": {type: easy, duration_min: 25, zones: ["Z1"], terrain: "flat", description: "25 мин Z1 плоско + 3×20с strides, D+≤15м, ноги свежими."}
-  "2026-09-11": {type: rest, duration_min: 0,  zones: [],      terrain: "-",    description: "Покой. Прогулка-разминка 15 мин, подготовка снаряжения/палок."}
+  # --- Неделя 1 (26.08–31.08): специфика + единственная race-sim на боевой трассе ---
+  "2026-08-26": {type: strength, duration_min: 55, zones: [], terrain: "gym", description: "Силовая (единственная в неделю): HSR подъём на носки 4×6-8 тяжело-медленно (ровный пол, БЕЗ провала пятки/step-down), RDL 3×8, hip thrust 3×10, кор."}
+  "2026-08-27": {type: quality, duration_min: 50, zones: ["Z2","Z3"], terrain: "flat", description: "Единственное качество блока: 15 WU → 4×3 мин Z3 (2 мин Z1 между) → CD, ПЛОСКО, D+≤30м. Первой под нож если утро ахилла шумит."}
+  "2026-08-28": {type: rest, duration_min: 0, zones: [], terrain: "-", description: "Полный отдых (день отдыха недели). Опц. прогулка 15-20 мин. Свежесть перед субботней трассой."}
+  "2026-08-29": {type: long, duration_min: 120, zones: ["Z1","Z2"], terrain: "trail", description: "КЛЮЧЕВАЯ race-sim НА БОЕВОЙ ТРАССЕ Lūsis (разведка + тест ахилла): 1:45-2:00, гоночные кроссовки, D+ до гоночного уровня. Powerhike ВСЕ подъёмы, первые спуски контролируемо (НЕ бомбить). Питание ~65 г/ч. Bail-able — не обязан весь круг. ЖЁСТКИЙ ГЕЙТ; после — 72ч без вертикали."}
+  "2026-08-30": {type: rest, duration_min: 0, zones: [], terrain: "-", description: "Отдых или ходьба 20-30 мин. Первая точка гейта по трассе (утро)."}
+  "2026-08-31": {type: easy, duration_min: 40, zones: ["Z1"], terrain: "flat", description: "40 мин Z1 ПЛОСКО, D+≤20м — только если утро ахилла чистое (ещё в 72ч окне после трассы → держать плоско). Хуже → отдых/вело."}
+  # --- Неделя 2 (01.09–08.09): ранний тейпер, острота, длинного больше нет ---
+  "2026-09-01": {type: easy, duration_min: 40, zones: ["Z1","Z2"], terrain: "flat", description: "40 мин Z1-Z2 плоско + 4×20с strides, D+≤20м, или отдых по самочувствию. Окно реакции на трассу закрывается — гейт."}
+  "2026-09-02": {type: strength, duration_min: 45, zones: [], terrain: "gym", description: "Силовая (поддерживающая, легче): HSR облегчённо 3×8, RDL, hip thrust, кор. Ахилл-ограничения те же."}
+  "2026-09-03": {type: easy, duration_min: 45, zones: ["Z2"], terrain: "flat", description: "45 мин Z2 плоско + 6×20с strides, D+≤30м."}
+  "2026-09-04": {type: easy, duration_min: 60, zones: ["Z2"], terrain: "flat", description: "60 мин Z2 плоско, внутри 10 мин на ГОНОЧНОМ усилии (контроль, не жёстко), D+≤30м. Единственное касание гоночного темпа."}
+  "2026-09-05": {type: rest, duration_min: 0, zones: [], terrain: "-", description: "Полный отдых (день отдыха недели). Изометрия лёгкая опц."}
+  "2026-09-06": {type: long, duration_min: 75, zones: ["Z1","Z2"], terrain: "rolling", description: "Средне-длинный 70-75 мин Z2, ~200м пологого D+ (спуски бегом ЛЕГКО), D+≤200м. ПОСЛЕДНИЙ бег дольше часа. Гейт по утру. НЕ вторая race-sim."}
+  "2026-09-07": {type: easy, duration_min: 30, zones: ["Z1"], terrain: "flat", description: "30 мин Z1 плоско, D+≤15м, или полный отдых по ногам."}
+  "2026-09-08": {type: easy, duration_min: 40, zones: ["Z1"], terrain: "flat", description: "40 мин Z1 плоско + 4×20с strides, D+≤15м."}
+  # --- Неделя 3 (09.09–11.09): пик тейпера ---
+  "2026-09-09": {type: easy, duration_min: 33, zones: ["Z1","Z2"], terrain: "flat", description: "33 мин Z1-Z2 плоско + 3×20с strides, D+≤15м."}
+  "2026-09-10": {type: rest, duration_min: 0, zones: [], terrain: "-", description: "Полный отдых или расбег 20 мин. Ноги свежими."}
+  "2026-09-11": {type: easy, duration_min: 22, zones: ["Z1"], terrain: "flat", description: "Предгоночный праймер: 22 мин легко + 3×20с ускорения, D+≤15м. Гейт-чек, подготовка снаряжения/палок."}
 
 race_day:
-  "2026-09-12": {type: race, duration_min: null, zones: ["Z1","Z2"], terrain: "Stirnu Buks Lūsis", description: "СТАРТ Stirnu Buks Lūsis ~30км / D+600м. REHAB-MODE: powerhike ВСЕ подъёмы, спуски контролируемо (не разгоняться — эксцентрика грузит ахилл), финиш важнее времени. Стартовать ТОЛЬКО если ахилл чист последние 2 недели. Гидратация + натрий."}
+  "2026-09-12": {type: race, duration_min: null, zones: ["Z1","Z2"], terrain: "Stirnu Buks Lūsis", description: "СТАРТ Stirnu Buks Lūsis ~30км / D+600м. FIRM GO. REHAB-MODE: powerhike ВСЕ подъёмы, спуски контролируемо (не разгоняться — эксцентрика грузит ахилл), финиш важнее времени. Гидратация + натрий. Если утро ахилла с болью/хромотой — пересмотр в день старта."}
 
-peak_weekly_vert_m: 350
+peak_weekly_vert_m: 480
 peak_long_run_h: 2.0
-taper_start_final: 2026-09-07
+taper_start_final: 2026-09-01
 
 training_zones: garmin-5zone
 methodology: achilles-tendinopathy-rehab-return-to-run

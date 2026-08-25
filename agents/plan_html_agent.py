@@ -1,5 +1,5 @@
 """
-plan_html_agent.py — рендерит plans/gauja_90k_2026.md в статичный HTML.
+plan_html_agent.py — рендерит plans/season_plan_2026.md в статичный HTML.
 
 Чистый Python, ноль LLM-токенов. Перегенерируется на каждый прогон
 pipeline.py — дёшево (одно чтение файла, без сети), и гарантирует, что
@@ -17,7 +17,7 @@ from pathlib import Path
 from context_agent import block_for_date, load_plan_config, to_date_str
 from koop_plan_agent import entry_for_date
 
-OUTPUT_PATH = Path(__file__).parent.parent / "plans" / "gauja_90k_2026.html"
+OUTPUT_PATH = Path(__file__).parent.parent / "plans" / "season_plan_2026.html"
 
 _BLOCK_LABELS = {
     "recovery": "Recovery",
@@ -204,7 +204,7 @@ def _render_html(config: dict, days: list[dict], today: date) -> str:
     <div class="countdown">{days_to_race} дней до старта</div>
   </header>
   {sections}
-  <footer>Сгенерировано автоматически из plans/gauja_90k_2026.md · {today.strftime('%d.%m.%Y')}</footer>
+  <footer>Сгенерировано автоматически из plans/season_plan_2026.md · {today.strftime('%d.%m.%Y')}</footer>
 </div>
 </body>
 </html>"""
@@ -213,7 +213,7 @@ def _render_html(config: dict, days: list[dict], today: date) -> str:
 # ── LangGraph node ────────────────────────────────────────────────────────────
 
 def render_plan_html_fn(state: dict | None = None) -> dict:
-    """Python, ноль LLM-токенов. Перегенерирует plans/gauja_90k_2026.html."""
+    """Python, ноль LLM-токенов. Перегенерирует plans/season_plan_2026.html."""
     config = load_plan_config()
     if not config:
         print("[plan_html] не удалось прочитать план — HTML не обновлён")

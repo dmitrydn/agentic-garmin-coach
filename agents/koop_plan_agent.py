@@ -2,7 +2,7 @@
 koop_plan_agent.py — персональный периодизированный план (Jason Koop / CTS),
 заменяет Garmin Coach (garmin_plan_fn) как основу ежедневной рекомендации.
 
-Читает день-в-день календарь из plans/gauja_90k_2026.md (weekly_templates по
+Читает день-в-день календарь из plans/season_plan_2026.md (weekly_templates по
 блокам + явные taper_days/race_day) и отдаёт upcoming_plan в ТОМ ЖЕ формате,
 что раньше отдавал garmin_plan_fn — coach_agent/plan_agent/synthesis_agent
 не меняются структурно, меняется только источник данных.

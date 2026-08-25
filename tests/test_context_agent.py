@@ -181,7 +181,7 @@ def test_race_dates_missing_log_returns_empty(tmp_path):
 
 def test_read_season_plan_without_b_race_key_does_not_crash():
     """
-    plans/gauja_90k_2026.md (v3 rehab plan) has no `b_race` key. _read_season_plan
+    plans/season_plan_2026.md (v3 rehab plan) has no `b_race` key. _read_season_plan
     must not KeyError, and must omit b_race_* / days_to_b_race from the result
     rather than inventing stale values. The live a_race is Stirnu Buks (2026-09-12,
     from events.log tag race-a) after the Gauja 90k DNS.

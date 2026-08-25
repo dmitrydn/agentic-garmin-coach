@@ -1,7 +1,7 @@
 """
 test_koop_plan_agent.py — Layer I: koop_plan_agent day-lookup correctness.
 
-koop_plan_agent reads plans/gauja_90k_2026.md and must resolve the correct
+koop_plan_agent reads plans/season_plan_2026.md and must resolve the correct
 day-by-day prescription for any date in the plan horizon. As of v3 (2026-07-29)
 the plan is an Achilles rehab → return-to-run block (Gauja 90k DNS'd), anchored
 to the conditional comeback race Stirnu Buks Lūsis on 2026-09-12:
@@ -10,8 +10,9 @@ to the conditional comeback race Stirnu Buks Lūsis on 2026-09-12:
   montenegro (04.08–18.08)
   rebuild1   (19.08–24.08)
   rebuild2   (25.08–31.08)
-  sharpen    (01.09–11.09)      -- via weekly_templates
-  09-07..09-11 via explicit taper_days, 09-12 via race_day.
+  sharpen    (01.09–11.09)
+  Final 18 days 26.08–11.09 encoded as explicit dated overrides
+  (taper_days key); 09-12 via race_day.
 """
 
 from datetime import date
@@ -51,10 +52,20 @@ def test_rebuild_saturday_resolves_to_long_run():
 
 def test_taper_day_resolves_to_explicit_date_entry():
     config = _config()
-    # 2026-09-09 is an explicit taper_days rest day (mini-taper before the race)
-    entry = entry_for_date(config, date(2026, 9, 9))
+    # 2026-09-10 is an explicit dated rest override (peak-taper before the race)
+    entry = entry_for_date(config, date(2026, 9, 10))
     assert entry is not None
     assert entry["type"] == "rest"
+
+
+def test_key_race_sim_resolves_on_course_2908():
+    config = _config()
+    # 2026-08-29: single key race-sim on the actual Lūsis course (athlete decision 25.08)
+    entry = entry_for_date(config, date(2026, 8, 29))
+    assert entry is not None
+    assert entry["type"] == "long"
+    assert entry.get("terrain") == "trail"
+    assert entry["duration_min"] == 120
 
 
 def test_race_day_resolves_to_race_entry():
@@ -91,5 +102,5 @@ def test_koop_plan_fn_lookahead_resolves_taper_days_and_race():
     # explicit dated entries (taper_days) and race_day must resolve in the lookahead
     result = koop_plan_fn({"date": "2026-09-08"})
     types_by_date = {w["date"]: w["type"] for w in result["upcoming_plan"]}
-    assert types_by_date["2026-09-09"] == "rest"   # taper day (mini-taper)
+    assert types_by_date["2026-09-10"] == "rest"   # explicit dated rest override
     assert types_by_date["2026-09-12"] == "race"   # race day

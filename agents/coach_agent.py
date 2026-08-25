@@ -80,8 +80,8 @@ ACWR зоны (ATL/CTL, Gabbett 2016):
   неконтролируемое усилие, удар головой, см. context_flags/events.log),
   01.08 (DNS — UTMB Gauja Trail 90км отменена из-за инсерционной тендинопатии
   ахилла, см. events.log). После rehab-пивота новая A-гонка: 12.09 —
-  Stirnu Buks Lūsis, 30км / 600м D+ (см. plans/gauja_90k_2026.md).
-  B-race ОТМЕНЕНА 21.06 (см. plans/gauja_90k_2026.md §1) — второго старта
+  Stirnu Buks Lūsis, 30км / 600м D+ (см. plans/season_plan_2026.md).
+  B-race ОТМЕНЕНА 21.06 (см. plans/season_plan_2026.md §1) — второго старта
   перед A-race не будет. Никогда не упоминай "B-race" как будущее событие
   или с обратным отсчётом дней — она осталась только как тег прошедшего
   события (race-b) в events.log.

@@ -27,7 +27,7 @@
 
 Данные под новые метрики **уже в БД**: `activity_cache.elevation_gain_m`,
 `training_load`, `duration_s`, `avg_hr`, `date`. Таргеты — `weekly_targets[block]`
-в plans/gauja_90k_2026.md (`target_minutes`, `target_tss`, `target_vert_m`).
+в plans/season_plan_2026.md (`target_minutes`, `target_tss`, `target_vert_m`).
 **Важный нюанс**: `time_in_z1/z2` в activity_cache почти всегда NULL (см. дамп) —
 детектор интенсивности НЕ может опираться на время в зонах, только на
 duration/load/vert/avg_hr.
