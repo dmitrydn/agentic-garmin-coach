@@ -426,3 +426,11 @@ def test_weekly_vertical_status_over_under_on_track():
     assert weekly_vertical_status(300, 480)["vertical_status"] == "under"
     assert weekly_vertical_status(500, 480)["vertical_status"] == "on_track"
     assert weekly_vertical_status(500, None)["vertical_status"] == "unknown"
+
+
+def test_weekly_volume_status_prorated_midweek():
+    from metrics import weekly_volume_status
+    # Wednesday (~3/7 elapsed): 115 min is on pace for a 270 target -> on_track
+    assert weekly_volume_status(115, 270, elapsed_fraction=3/7)["volume_status"] == "on_track"
+    # same actual vs FULL week reads as under (the pre-prorate false alarm)
+    assert weekly_volume_status(115, 270)["volume_status"] == "under"

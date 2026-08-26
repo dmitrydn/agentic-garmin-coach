@@ -81,10 +81,19 @@ def context_agent_fn(state: dict) -> dict:
 
     # Контроль объёма: фактический недельный объём (metrics_fn) vs target текущего блока
     target = (season.get("weekly_targets") or {}).get(season.get("current_block"), {})
-    vol = weekly_volume_status(state.get("week_total_minutes"), target.get("target_minutes"))
+    # Пропорционирование цели по прошедшей доле недели (пн=1/7 … вс=7/7),
+    # чтобы в начале недели не было ложного under/over просто от недожитой недели.
+    try:
+        _wd = date.fromisoformat(state.get("date")).weekday()
+    except (ValueError, TypeError):
+        _wd = date.today().weekday()
+    elapsed_fraction = (_wd + 1) / 7.0
+    vol = weekly_volume_status(state.get("week_total_minutes"), target.get("target_minutes"),
+                               elapsed_fraction=elapsed_fraction)
     if vol["volume_status"] in ("over", "under"):
         resolved_flags.append(f"volume_{vol['volume_status']}:{vol['volume_pct']}%")
-    vert = weekly_vertical_status(state.get("week_total_vert"), target.get("target_vert_m"))
+    vert = weekly_vertical_status(state.get("week_total_vert"), target.get("target_vert_m"),
+                                  elapsed_fraction=elapsed_fraction)
     if vert["vertical_status"] == "over":
         resolved_flags.append(f"vertical_over:{vert['vertical_pct']}%")
 
@@ -93,7 +102,7 @@ def context_agent_fn(state: dict) -> dict:
         if tgt is None or actual is None:
             return f"{'?' if actual is None else round(actual)}{unit} (нет цели)"
         sign = "+" if (pct or 0) >= 0 else ""
-        return f"{round(actual)}/{tgt}{unit} ({sign}{pct}%, {status})"
+        return f"{round(actual)}/{tgt}{unit} (темп {sign}{pct}%, {status})"
     _dtr = season.get("days_to_a_race")
     plan_progress = {
         "block":           season.get("current_block"),

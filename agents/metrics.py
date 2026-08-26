@@ -184,17 +184,20 @@ def weekly_zone_ratio(week_activities: list[dict]) -> dict:
 # ── Контроль объёма недели против koop-плана ──────────────────────────────────
 
 def weekly_volume_status(actual_minutes: float | None, target_minutes: float | None,
-                          tolerance: float = 0.15) -> dict:
+                          tolerance: float = 0.15, elapsed_fraction: float = 1.0) -> dict:
     """
-    Сравнивает фактический недельный объём (мин, из activity_cache) с целевым
-    объёмом текущего блока (weekly_targets в plans/season_plan_2026.md).
-    Допуск ±15% — за пределами считается отклонением, требующим коррекции
-    объёма в plan_agent (context_flags: volume_over / volume_under).
+    Сравнивает фактический недельный объём (мин) с ЦЕЛЬЮ НА ТЕКУЩИЙ МОМЕНТ недели:
+    target × elapsed_fraction (доля прошедшей недели). Без пропорционирования цель
+    в середине недели всегда «недобрана» просто потому, что неделя не дожита (ложный
+    volume_under в пн-ср, который мог дёргать make-up). elapsed_fraction=1.0 → полная цель.
+    Допуск ±15%. Флаги: volume_over / volume_under (context_flags).
     """
     if not target_minutes or actual_minutes is None:
         return {"volume_status": "unknown", "volume_pct": None}
 
-    pct = (actual_minutes - target_minutes) / target_minutes
+    _frac = elapsed_fraction if (elapsed_fraction and elapsed_fraction > 0) else 1.0
+    _expected = target_minutes * _frac
+    pct = (actual_minutes - _expected) / _expected
     if pct > tolerance:
         status = "over"
     elif pct < -tolerance:
@@ -206,12 +209,16 @@ def weekly_volume_status(actual_minutes: float | None, target_minutes: float | N
 
 # ── Вертикаль: недельный статус + спайк-детектор (механизм травмы ахилла) ─────
 
-def weekly_vertical_status(actual_vert_m, target_vert_m, tolerance: float = 0.20) -> dict:
-    """Недельный набор высоты (D+, сумма elevation_gain_m) vs target_vert_m блока
-    (season_plan). Допуск ±20% (вертикаль лумпи). >допуска = over (перебор), под = under."""
+def weekly_vertical_status(actual_vert_m, target_vert_m, tolerance: float = 0.20,
+                           elapsed_fraction: float = 1.0) -> dict:
+    """Недельный D+ vs целью на ТЕКУЩИЙ момент недели (target_vert_m × elapsed_fraction).
+    Пропорционирование убирает ложный статус в середине недели. Допуск ±20%.
+    elapsed_fraction=1.0 → vs полная цель."""
     if not target_vert_m or actual_vert_m is None:
         return {"vertical_status": "unknown", "vertical_pct": None}
-    pct = (actual_vert_m - target_vert_m) / target_vert_m
+    _frac = elapsed_fraction if (elapsed_fraction and elapsed_fraction > 0) else 1.0
+    _expected = target_vert_m * _frac
+    pct = (actual_vert_m - _expected) / _expected
     if pct > tolerance:
         status = "over"
     elif pct < -tolerance:
