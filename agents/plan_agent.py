@@ -58,7 +58,7 @@ PLAN_SYSTEM = """
    - за 7 дней до C-гонки → tapering (длинный ≤ 60 мин)
    - B-гонка прошла 20.06 и больше не в горизонте планирования — не учитывать
    - за 14 дней до A-гонки → полный taper (длинный ≤ 90 мин, объём -40%).
-     Атлет 58 лет: полное восстановление от длинного выхода занимает 7-10 дней.
+     Атлет 59 лет: полное восстановление от длинного выхода занимает 7-10 дней.
    C-гонка НЕ стоит риска для A-гонки — её ценность воспроизводима тренировочным длинным выходом.
 6. При illness-флаге в context_flags — не рекомендовать нагрузку выше Z1
    до выполнения чек-листа возобновления. В поле description включить
@@ -234,7 +234,7 @@ Garmin real-time (если доступен):
             }
 
     # Hard cap: B-race within 10 days → long run duration is capped regardless of LLM output.
-    # A 58-year-old needs 7-10 days to recover from a long run; Garmin's plan doesn't know
+    # A 59-year-old needs 7-10 days to recover from a long run; Garmin's plan doesn't know
     # about race proximity, so we enforce it deterministically.
     days_to_b = state.get("days_to_b_race")
     b_km = (state.get("season_plan") or {}).get("b_race_distance_km") or 0

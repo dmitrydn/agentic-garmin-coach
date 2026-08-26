@@ -199,7 +199,7 @@ def print_baseline_hrv(values: list[float], recent_days: int = 90):
     recent_stats = stats(recent)
 
     print(f"{'─'*60}")
-    print(f"💜 HRV — ДЕТАЛЬНЫЙ АНАЛИЗ (важно для возраста 58)")
+    print(f"💜 HRV — ДЕТАЛЬНЫЙ АНАЛИЗ (важно для возраста 59)")
     print(f"{'─'*60}")
     print(f"  Вся история:    mean={all_stats['mean']:.1f}  "
           f"median={all_stats['median']:.1f}  std={all_stats['std']:.1f}")
