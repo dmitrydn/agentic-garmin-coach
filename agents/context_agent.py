@@ -23,7 +23,7 @@ from pathlib import Path
 
 import yaml
 
-from metrics import weekly_volume_status
+from metrics import weekly_volume_status, weekly_vertical_status
 
 PLAN_PATH = Path(__file__).parent.parent / "plans" / "season_plan_2026.md"
 
@@ -84,6 +84,9 @@ def context_agent_fn(state: dict) -> dict:
     vol = weekly_volume_status(state.get("week_total_minutes"), target.get("target_minutes"))
     if vol["volume_status"] in ("over", "under"):
         resolved_flags.append(f"volume_{vol['volume_status']}:{vol['volume_pct']}%")
+    vert = weekly_vertical_status(state.get("week_total_vert"), target.get("target_vert_m"))
+    if vert["vertical_status"] == "over":
+        resolved_flags.append(f"vertical_over:{vert['vertical_pct']}%")
 
     feedback_source = "poll+events" if poll else "events_only"
     print(f"[context_agent] feedback_source={feedback_source} poll={poll}")
@@ -120,6 +123,13 @@ def _compute_flags(state: dict) -> list[str]:
         flags.append(f"acwr_high_risk:{acwr}")
     elif zone == "caution":
         flags.append(f"acwr_caution:{acwr}")
+
+    vzone = state.get("vertical_acwr_zone", "optimal") or "optimal"
+    vacwr = state.get("vertical_acwr", 1.0)
+    if vzone == "high_risk":
+        flags.append(f"vertical_spike_high:{vacwr}")
+    elif vzone == "caution":
+        flags.append(f"vertical_spike_caution:{vacwr}")
 
     hrv_dev = state.get("hrv_deviation_pct", 0.0) or 0.0
     hrv_cv  = state.get("hrv_cv_week", 0.0) or 0.0

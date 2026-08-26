@@ -192,3 +192,8 @@ def test_read_season_plan_without_b_race_key_does_not_crash():
     assert "days_to_b_race" not in result
     assert "b_race_date" not in result
     assert result["days_to_a_race"] == 83  # 2026-09-12 - 2026-06-21
+
+
+def test_vertical_spike_high_flag_present():
+    flags = _compute_flags({"vertical_acwr_zone": "high_risk", "vertical_acwr": 1.8})
+    assert any(f.startswith("vertical_spike_high") for f in flags)

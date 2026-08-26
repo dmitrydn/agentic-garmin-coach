@@ -395,3 +395,34 @@ def test_volume_status_unknown_when_no_target():
 def test_volume_status_unknown_when_actual_missing():
     result = weekly_volume_status(None, 260)
     assert result["volume_status"] == "unknown"
+
+
+# ── Vertical guard (Achilles-injury spike detector) ──────────────────────────
+
+def test_vertical_acwr_flags_spike():
+    from datetime import date
+    from metrics import vertical_acwr
+    today = date(2026, 7, 8)  # injury day; backtest showed high_risk here
+    rows = [("2026-06-14", 300), ("2026-06-21", 300), ("2026-06-28", 300),
+            ("2026-07-04", 500), ("2026-07-06", 300)]  # ~800 acute on ~425/wk base
+    v = vertical_acwr(rows, today=today)
+    assert v["vertical_acwr_zone"] == "high_risk"
+    assert v["vertical_acwr"] > 1.5
+
+
+def test_vertical_acwr_optimal_when_steady():
+    from datetime import date
+    from metrics import vertical_acwr
+    today = date(2026, 7, 8)
+    rows = [("2026-06-17", 200), ("2026-06-24", 200),
+            ("2026-07-01", 200), ("2026-07-07", 200)]
+    v = vertical_acwr(rows, today=today)
+    assert v["vertical_acwr_zone"] == "optimal"
+
+
+def test_weekly_vertical_status_over_under_on_track():
+    from metrics import weekly_vertical_status
+    assert weekly_vertical_status(600, 480)["vertical_status"] == "over"
+    assert weekly_vertical_status(300, 480)["vertical_status"] == "under"
+    assert weekly_vertical_status(500, 480)["vertical_status"] == "on_track"
+    assert weekly_vertical_status(500, None)["vertical_status"] == "unknown"

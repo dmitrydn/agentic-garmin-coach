@@ -204,6 +204,64 @@ def weekly_volume_status(actual_minutes: float | None, target_minutes: float | N
     return {"volume_status": status, "volume_pct": round(pct * 100, 1)}
 
 
+# ── Вертикаль: недельный статус + спайк-детектор (механизм травмы ахилла) ─────
+
+def weekly_vertical_status(actual_vert_m, target_vert_m, tolerance: float = 0.20) -> dict:
+    """Недельный набор высоты (D+, сумма elevation_gain_m) vs target_vert_m блока
+    (season_plan). Допуск ±20% (вертикаль лумпи). >допуска = over (перебор), под = under."""
+    if not target_vert_m or actual_vert_m is None:
+        return {"vertical_status": "unknown", "vertical_pct": None}
+    pct = (actual_vert_m - target_vert_m) / target_vert_m
+    if pct > tolerance:
+        status = "over"
+    elif pct < -tolerance:
+        status = "under"
+    else:
+        status = "on_track"
+    return {"vertical_status": status, "vertical_pct": round(pct * 100, 1)}
+
+
+def vertical_acwr(vert_rows, today=None, chronic_floor_m: float = 120.0) -> dict:
+    """
+    Вертикальный ACWR = acute(D+ за 7д) / chronic(D+ за 28д / 4 = средненедельный).
+    Ловит СПАЙКИ ВЕРТИКАЛИ — доказанный механизм травмы ахилла у этого атлета
+    (injury first-cause: недельный D+ прыгал 400→1019→857 перед травмой). Нагрузочный
+    ACWR этого не ловит (усредняет по load). chronic_floor не даёт метрике взрываться
+    на пустой базе, но спайк на неадаптированном тендоне всё равно поднимает ratio.
+    vert_rows: [(date_str, elevation_gain_m), ...] за ~28 дней.
+    """
+    today = today or date.today()
+    acute = chronic28 = 0.0
+    for d, elev in vert_rows:
+        d = (d or "")[:10]
+        if not d:
+            continue
+        try:
+            dd = date.fromisoformat(d)
+        except ValueError:
+            continue
+        e = elev or 0.0
+        days = (today - dd).days
+        if 0 <= days < 28:
+            chronic28 += e
+            if days < 7:
+                acute += e
+    chronic_weekly = max(chronic28 / 4.0, chronic_floor_m)
+    ratio = acute / chronic_weekly
+    if ratio > 1.5:
+        zone = "high_risk"
+    elif ratio > 1.3:
+        zone = "caution"
+    else:
+        zone = "optimal"
+    return {
+        "vertical_acwr":         round(ratio, 2),
+        "vertical_acwr_zone":    zone,
+        "acute_vert_m":          round(acute),
+        "chronic_vert_weekly_m": round(chronic28 / 4.0),
+    }
+
+
 # ── Дней с последней качественной сессии ─────────────────────────────────────
 
 def days_since_last_quality(activities: list[dict], plan_quality_dates: set | None = None) -> int:
@@ -369,9 +427,16 @@ def metrics_fn(state: dict) -> dict:
     week_start = (date.today() - timedelta(days=date.today().weekday())).isoformat()
     week_rows = con.execute("""
         SELECT duration_s, training_load, name, date,
-               time_in_z1, time_in_z2, rpe
+               time_in_z1, time_in_z2, rpe, elevation_gain_m
         FROM activity_cache WHERE date >= ?
     """, (week_start,)).fetchall()
+
+    # 28-дневная вертикаль для vertical_acwr (спайк-детектор набора высоты)
+    vert_start = (date.today() - timedelta(days=28)).isoformat()
+    vert_rows = con.execute(
+        "SELECT date, elevation_gain_m FROM activity_cache WHERE date >= ?",
+        (vert_start,),
+    ).fetchall()
 
     # Фактически выполненные тренировки за 10 дней — заземление для LLM,
     # чтобы coach/plan/synthesis не выдумывали историю (см. format_recent_activities).
@@ -402,7 +467,7 @@ def metrics_fn(state: dict) -> dict:
         {
             "duration_s":   r[0], "training_load": r[1], "name": r[2],
             "date":         r[3], "time_in_z1":    r[4], "time_in_z2": r[5],
-            "rpe":          r[6],
+            "rpe":          r[6], "elevation_gain_m": r[7],
         }
         for r in week_rows
     ]
@@ -425,6 +490,8 @@ def metrics_fn(state: dict) -> dict:
     acwr_data = calculate_acwr(ctl, atl)
     rhr_data  = rhr_trend_analysis(history)
     zone_data = weekly_zone_ratio(week_activities)
+    week_total_vert = sum((a.get("elevation_gain_m") or 0.0) for a in week_activities)
+    vert_data = vertical_acwr(vert_rows)
     # Plan-aware quality detection: дни, где персональный план предписывал quality.
     # Ленивый импорт (context_agent импортирует metrics — избегаем циклического импорта).
     plan_quality_dates: set = set()
@@ -468,6 +535,8 @@ def metrics_fn(state: dict) -> dict:
         "z1z2_ratio_week":    zone_data.get("z1z2_ratio"),
         "z1z2_compliant":     zone_data.get("z1z2_compliant"),
         "week_total_minutes": zone_data.get("total_minutes"),
+        "week_total_vert":    round(week_total_vert),
+        **vert_data,
         "days_since_quality": dsq,
         "mesocycle_week":     meso_week,
         "adjusted_loads":     adj_loads,
