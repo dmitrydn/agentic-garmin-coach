@@ -88,6 +88,32 @@ def context_agent_fn(state: dict) -> dict:
     if vert["vertical_status"] == "over":
         resolved_flags.append(f"vertical_over:{vert['vertical_pct']}%")
 
+    # Прогресс к цели (детерминированно, для отчёта — план vs факт по блоку)
+    def _fmt_prog(actual, tgt, pct, status, unit):
+        if tgt is None or actual is None:
+            return f"{'?' if actual is None else round(actual)}{unit} (нет цели)"
+        sign = "+" if (pct or 0) >= 0 else ""
+        return f"{round(actual)}/{tgt}{unit} ({sign}{pct}%, {status})"
+    _dtr = season.get("days_to_a_race")
+    plan_progress = {
+        "block":           season.get("current_block"),
+        "days_to_a_race":  _dtr,
+        "week_minutes":    state.get("week_total_minutes"),
+        "target_minutes":  target.get("target_minutes"),
+        "volume_status":   vol["volume_status"],
+        "volume_pct":      vol["volume_pct"],
+        "week_vert_m":     state.get("week_total_vert"),
+        "target_vert_m":   target.get("target_vert_m"),
+        "vertical_status": vert["vertical_status"],
+        "vertical_pct":    vert["vertical_pct"],
+    }
+    plan_progress_line = (
+        f"Блок {season.get('current_block')}"
+        + (f", до гонки {_dtr}д" if _dtr is not None else "")
+        + f": объём {_fmt_prog(state.get('week_total_minutes'), target.get('target_minutes'), vol['volume_pct'], vol['volume_status'], 'мин')}"
+        + f"; вертикаль {_fmt_prog(state.get('week_total_vert'), target.get('target_vert_m'), vert['vertical_pct'], vert['vertical_status'], 'м')}"
+    )
+
     feedback_source = "poll+events" if poll else "events_only"
     print(f"[context_agent] feedback_source={feedback_source} poll={poll}")
     print(f"[context_agent] flags: {resolved_flags}")
@@ -105,6 +131,8 @@ def context_agent_fn(state: dict) -> dict:
         "days_to_a_race":       season.get("days_to_a_race"),
         "poll_rpe":             poll["rpe"]  if poll else None,
         "poll_legs_heaviness":  poll["legs"] if poll else None,
+        "plan_progress":        plan_progress,
+        "plan_progress_line":   plan_progress_line,
     }
 
 
