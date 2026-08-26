@@ -206,29 +206,38 @@ def weekly_volume_status(actual_minutes: float | None, target_minutes: float | N
 
 # ── Дней с последней качественной сессии ─────────────────────────────────────
 
-def days_since_last_quality(activities: list[dict]) -> int:
+def days_since_last_quality(activities: list[dict], plan_quality_dates: set | None = None) -> int:
     """
-    Минимальный интервал между качественными сессиями для 58 лет: 48ч (2 дня).
-    Качество = load > 70 или ключевые слова в названии.
-    """
-    today = date.today()
-    quality = [
-        a for a in activities
-        if (a.get("training_load") or a.get("icu_training_load") or 0) > 70
-        or any(kw in (a.get("name") or "").lower()
-               for kw in ("interval", "threshold", "tempo", "качество", "интервал", "темп"))
-    ]
-    if not quality:
-        return 99
+    Дней с последней КАЧЕСТВЕННОЙ (интенсивной) сессии; 99 если таких нет.
 
-    last_date = max(
-        date.fromisoformat(
-            (a.get("start_date_local") or a.get("date") or "")[:10]
-        )
-        for a in quality
-        if (a.get("start_date_local") or a.get("date") or "")[:10]
-    )
-    return (today - last_date).days
+    Качество определяется по интенсивности/плану, НЕ по training_load: load
+    растёт от ОБЪЁМА, поэтому лёгкий/длинный бег легко даёт load>70 и раньше
+    ложно помечался качеством — из-за чего coach отменял реальные интервалы.
+    Сессия = качество, если:
+      • в названии ключевые слова (interval/tempo/threshold/интервал/темп/качество), ИЛИ
+      • RPE >= 7 (когда заполнен), ИЛИ
+      • план предписывал quality в этот день И была пробежка (plan_quality_dates).
+    """
+    plan_quality_dates = plan_quality_dates or set()
+    KW = ("interval", "threshold", "tempo", "качество", "интервал", "темп")
+
+    def _d(a: dict) -> str:
+        return (a.get("start_date_local") or a.get("date") or "")[:10]
+
+    def _is_quality(a: dict) -> bool:
+        name = (a.get("name") or "").lower()
+        if any(k in name for k in KW):
+            return True
+        rpe = a.get("rpe")
+        if rpe is not None and rpe >= 7:
+            return True
+        return _d(a) in plan_quality_dates
+
+    q_dates = [_d(a) for a in activities if _d(a) and _is_quality(a)]
+    if not q_dates:
+        return 99
+    last_date = max(date.fromisoformat(d) for d in q_dates)
+    return (date.today() - last_date).days
 
 
 # ── Фактически выполненные тренировки (антигаллюцинационное заземление) ────────
@@ -360,7 +369,7 @@ def metrics_fn(state: dict) -> dict:
     week_start = (date.today() - timedelta(days=date.today().weekday())).isoformat()
     week_rows = con.execute("""
         SELECT duration_s, training_load, name, date,
-               time_in_z1, time_in_z2
+               time_in_z1, time_in_z2, rpe
         FROM activity_cache WHERE date >= ?
     """, (week_start,)).fetchall()
 
@@ -393,6 +402,7 @@ def metrics_fn(state: dict) -> dict:
         {
             "duration_s":   r[0], "training_load": r[1], "name": r[2],
             "date":         r[3], "time_in_z1":    r[4], "time_in_z2": r[5],
+            "rpe":          r[6],
         }
         for r in week_rows
     ]
@@ -415,7 +425,23 @@ def metrics_fn(state: dict) -> dict:
     acwr_data = calculate_acwr(ctl, atl)
     rhr_data  = rhr_trend_analysis(history)
     zone_data = weekly_zone_ratio(week_activities)
-    dsq       = days_since_last_quality(week_activities)
+    # Plan-aware quality detection: дни, где персональный план предписывал quality.
+    # Ленивый импорт (context_agent импортирует metrics — избегаем циклического импорта).
+    plan_quality_dates: set = set()
+    try:
+        from context_agent import load_plan_config
+        from koop_plan_agent import entry_for_date
+        _cfg = load_plan_config()
+        if _cfg:
+            _pd = date.fromisoformat(week_start)
+            while _pd <= date.today():
+                _pe = entry_for_date(_cfg, _pd)
+                if _pe and _pe.get("type") == "quality":
+                    plan_quality_dates.add(_pd.isoformat())
+                _pd += timedelta(days=1)
+    except Exception as _ex:
+        print(f"[metrics] plan_quality_dates unavailable: {_ex}")
+    dsq       = days_since_last_quality(week_activities, plan_quality_dates)
 
     adj_loads = [
         {**a, "adjusted_load": adjusted_training_load(a)}

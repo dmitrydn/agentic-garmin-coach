@@ -216,12 +216,31 @@ def test_days_since_quality_no_activities_returns_99():
     assert days_since_last_quality([]) == 99
 
 
-def test_days_since_quality_detects_high_load():
+def test_days_since_quality_detects_by_name_keyword():
     from datetime import date, timedelta
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     acts = [{"date": yesterday, "training_load": 80, "name": "Tempo Run"}]
     result = days_since_last_quality(acts)
-    assert result == 1
+    assert result == 1  # via "tempo" keyword, NOT via load
+
+
+def test_days_since_quality_high_load_easy_run_is_not_quality():
+    # Regression: easy/long run accumulates load>70 from VOLUME, not intensity —
+    # must NOT count as quality (this false-positive cancelled real sessions).
+    from datetime import date, timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    acts = [{"date": yesterday, "training_load": 137, "name": "Garkalne Running"}]
+    assert days_since_last_quality(acts) == 99
+
+
+def test_days_since_quality_plan_prescribed_counts():
+    from datetime import date, timedelta
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    acts = [{"date": yesterday, "training_load": 50, "name": "Garkalne Running"}]
+    # generic name, no keyword — plan prescribed quality that day + run happened
+    assert days_since_last_quality(acts, {yesterday}) == 1
+    # without the plan hint, same easy-named run is not quality
+    assert days_since_last_quality(acts) == 99
 
 
 def test_days_since_quality_ignores_easy_run():
