@@ -719,11 +719,21 @@ def _fetch_sleep_stages(api, date_str: str) -> dict:
         dto = data.get("dailySleepDTO") or {}
         if not dto:
             return empty
+        deep, rem  = dto.get("deepSleepSeconds"),  dto.get("remSleepSeconds")
+        light, awk = dto.get("lightSleepSeconds"), dto.get("awakeSleepSeconds")
+        # Garmin часто ещё НЕ досчитал фазы при раннем запуске (крон 07:00): запись
+        # сна есть (dto не пуст), но разбивка по стадиям пустая/нулевая. Возвращаем
+        # unknown (None), а НЕ нули — иначе coach примет "0 мин глубокого" за реальные
+        # данные. Лог ниже покажет причину на след. прогоне (тайминг vs дрейф полей).
+        if not any([deep, rem, light]):
+            print(f"[garmin_performance] sleep stages ещё не готовы для {date_str} "
+                  f"(dto keys: {list(dto.keys())[:12]})")
+            return empty
         return {
-            "sleep_deep_min":  round((dto.get("deepSleepSeconds")  or 0) / 60),
-            "sleep_rem_min":   round((dto.get("remSleepSeconds")   or 0) / 60),
-            "sleep_light_min": round((dto.get("lightSleepSeconds") or 0) / 60),
-            "sleep_awake_min": round((dto.get("awakeSleepSeconds") or 0) / 60),
+            "sleep_deep_min":  round((deep  or 0) / 60),
+            "sleep_rem_min":   round((rem   or 0) / 60),
+            "sleep_light_min": round((light or 0) / 60),
+            "sleep_awake_min": round((awk   or 0) / 60),
         }
     except Exception as e:
         print(f"[garmin_performance] sleep stages ошибка: {e}")

@@ -523,3 +523,33 @@ def test_backfill_running_dynamics_no_network_call_when_nothing_missing(tmp_db):
     with patch("garmin_agent._get_api") as mock_get_api:
         backfill_running_dynamics_fn({})
     mock_get_api.assert_not_called()
+
+
+def test_fetch_sleep_stages_unknown_when_not_ready():
+    """Stages not yet computed by Garmin (early cron): record present but phase
+    seconds zero → return unknown (None), NOT misleading 0-minute values."""
+    from unittest.mock import Mock
+    from garmin_agent import _fetch_sleep_stages
+    api = Mock()
+    api.get_sleep_data.return_value = {"dailySleepDTO": {
+        "deepSleepSeconds": 0, "remSleepSeconds": 0,
+        "lightSleepSeconds": 0, "awakeSleepSeconds": 0,
+    }}
+    r = _fetch_sleep_stages(api, "2026-09-05")
+    assert r["sleep_deep_min"] is None
+    assert r["sleep_rem_min"] is None
+    assert r["sleep_light_min"] is None
+
+
+def test_fetch_sleep_stages_parses_real_stages():
+    from unittest.mock import Mock
+    from garmin_agent import _fetch_sleep_stages
+    api = Mock()
+    api.get_sleep_data.return_value = {"dailySleepDTO": {
+        "deepSleepSeconds": 4800, "remSleepSeconds": 5400,
+        "lightSleepSeconds": 9000, "awakeSleepSeconds": 600,
+    }}
+    r = _fetch_sleep_stages(api, "2026-09-05")
+    assert r["sleep_deep_min"] == 80
+    assert r["sleep_rem_min"] == 90
+    assert r["sleep_light_min"] == 150
